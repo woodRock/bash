@@ -21,7 +21,6 @@ var env_vars = {
 # Block Parsing State
 var block_buffer = []
 var nesting_depth = 0
-
 var boot_screen_timer: float = 4.0
 
 func _ready() -> void:
@@ -38,7 +37,7 @@ func _ready() -> void:
 	await get_tree().create_timer(boot_screen_timer).timeout 
 	
 	focus_loop_enabled = true
-	# Run bashrc in a subshell so it doesn't move Jesse from /home/jesse
+	# Subshell ensures boot tests don't leave the user in /bin
 	await process_input_line("sh /.bashrc")
 	grab_focus()
 
@@ -56,6 +55,19 @@ func _on_command_submitted(new_text: String) -> void:
 	command_executed.emit(line, result)
 	
 	text = ""; grab_focus()
+
+func _gui_input(event: InputEvent) -> void:
+	var scroll_container = output_log.get_parent() as ScrollContainer
+	if not scroll_container: return
+
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_PAGEUP:
+				scroll_container.scroll_vertical -= 250
+				get_viewport().set_input_as_handled()
+			KEY_PAGEDOWN:
+				scroll_container.scroll_vertical += 250
+				get_viewport().set_input_as_handled()
 
 func process_input_line(line: String, is_silent: bool = false) -> String:
 	var clean_line = line.strip_edges()
@@ -135,12 +147,10 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"clear": output_log.clear(); return ""
 		"export": handle_export(args); return ""
 		"chmod": execute_chmod(args); return ""
-		"ls": return await execute_syscall(tokens) # Pass tokens to handle -a
+		"ls", "mkdir", "touch", "rm", "grep": return await execute_syscall(tokens)
 		"cat": return execute_cat(args)
 		"cd": return execute_cd(args)
 		"sh": return await execute_sh(args)
-		"ssh-keygen": return await execute_ssh_keygen(args)
-		"ssh": return await execute_ssh_connection(args)
 		"syscall": return await execute_syscall(args)
 		_:
 			var path = find_executable(cmd)
@@ -154,7 +164,6 @@ func execute_sh(args: Array) -> String:
 		if not VFS.files[p].get("executable", false):
 			return "bash: " + args[0] + ": Permission denied"
 			
-		# SUBSHELL PATCH: Snapshot state
 		var prev_pwd = VFS.current_path
 		var prev_env = env_vars.duplicate()
 		
@@ -164,7 +173,6 @@ func execute_sh(args: Array) -> String:
 			var res = await process_input_line(line, true)
 			if res != "" and res != null: outputs.append(res)
 			
-		# SUBSHELL PATCH: Restore state
 		VFS.current_path = prev_pwd
 		env_vars = prev_env
 		return "\n".join(outputs)
@@ -176,25 +184,42 @@ func execute_syscall(args: Array) -> String:
 		"ls":
 			var out = []
 			var show_hidden = false
-			for i in range(1, args.size()):
-				if args[i] == "-a":
-					show_hidden = true
+			for arg in args:
+				if arg == "-a": show_hidden = true
 			
 			for p in VFS.files.keys():
 				if p.begins_with(VFS.current_path) and p != VFS.current_path:
 					var rel = p.trim_prefix(VFS.current_path).trim_prefix("/")
 					if not "/" in rel:
-						# Filter hidden files starting with '.'
-						if rel.begins_with(".") and not show_hidden:
-							continue
-							
+						if rel.begins_with(".") and not show_hidden: continue
 						var is_dir = VFS.files[p].type == "dir"
-						var is_exe = VFS.files[p].get("executable", false)
-						var col = "#5dade2" if is_dir else ("#50fa7b" if is_exe else "#ffffff")
+						var col = "#5dade2" if is_dir else "#ffffff"
 						out.append("[color=" + col + "]" + rel + ("/" if is_dir else "") + "[/color]")
 			return "  ".join(out)
+			
+		"mkdir":
+			if args.size() < 2: return "mkdir: missing operand"
+			var p = VFS.resolve_path(args[1])
+			VFS.files[p] = {"type": "dir", "executable": true, "content": ""}
+			return ""
+			
+		"touch":
+			if args.size() < 2: return "touch: missing file operand"
+			var p = VFS.resolve_path(args[1])
+			if not VFS.files.has(p):
+				VFS.files[p] = {"type": "file", "executable": false, "content": ""}
+			return ""
+			
+		"rm":
+			if args.size() < 2: return "rm: missing operand"
+			var p = VFS.resolve_path(args[1])
+			if VFS.files.has(p):
+				VFS.files.erase(p)
+				return ""
+			return "rm: cannot remove '" + args[1] + "': No such file"
+			
 		"grep":
-			if args.size() < 3: return ""
+			if args.size() < 3: return "usage: grep [pattern] [file]"
 			var pat = args[1].to_lower(); var p = VFS.resolve_path(args[2])
 			if VFS.files.has(p):
 				var matches = []
@@ -232,20 +257,6 @@ func find_executable(cmd: String) -> String:
 		if VFS.files.has(target): return target
 	return ""
 
-func execute_ssh_keygen(args: Array) -> String:
-	var ssh_dir = "/home/jesse/.ssh"
-	if not VFS.files.has(ssh_dir):
-		VFS.files[ssh_dir] = {"type": "dir", "executable": true, "content": ""}
-	append_to_log("Generating public/private rsa key pair...")
-	await get_tree().create_timer(0.8).timeout
-	VFS.files[ssh_dir + "/id_rsa"] = {"type": "file", "executable": false, "content": "PRIVATE KEY"}
-	VFS.files[ssh_dir + "/id_rsa.pub"] = {"type": "file", "executable": false, "content": "PUBLIC KEY"}
-	return "Keys generated in " + ssh_dir
-
-func execute_ssh_connection(args: Array) -> String:
-	if args.size() == 0: return "usage: ssh user@host"
-	return "Connected to " + args[0]
-
 func handle_export(args: Array):
 	var pair = " ".join(args).split("=", true, 1)
 	if pair.size() == 2:
@@ -262,7 +273,11 @@ func evaluate_condition(cond: String) -> bool:
 func append_to_log(msg: String) -> void:
 	output_log.append_text(msg + "\n")
 	await get_tree().process_frame
-	output_log.scroll_to_line(output_log.get_line_count())
+	
+	var scroll_container = output_log.get_parent() as ScrollContainer
+	if scroll_container:
+		var v_bar = scroll_container.get_v_scroll_bar()
+		scroll_container.set_deferred("scroll_vertical", v_bar.max_value)
 
 func _on_focus_changed(node: Control) -> void:
 	if focus_loop_enabled and node != self: call_deferred("grab_focus")
