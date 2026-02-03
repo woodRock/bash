@@ -14,6 +14,10 @@ config/name="bash"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+MissionManager="*uid://cij8tnpoj71ok"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

@@ -8,6 +8,8 @@ func _ready() -> void:
 	if input_line:
 		input_line.visible = false
 		input_line.editable = false
+	else:
+		print("LineEdit is false!")
 
 func activate_terminal() -> void:
 	if input_line:

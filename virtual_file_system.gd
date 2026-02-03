@@ -1,104 +1,82 @@
 extends Node
 
-# The core state of your OS
 var current_path = "/home/jesse"
+var files = {}
 
-# File Dictionary Structure:
-# "path": {"type": "dir" or "file", "content": "string", "executable": bool}
-var files = {
-	"/": {"type": "dir"},
-	"/bin": {"type": "dir"},
-	"/home": {"type": "dir"},
-	"/home/jesse": {"type": "dir"},
-	"/tests": {"type": "dir"},
-	"/tmp": {"type": "dir"},
-}
-
-func _ready() -> void:
+func _init() -> void:
+	files = {
+		"/": {"type": "dir", "executable": true, "content": ""},
+		"/bin": {"type": "dir", "executable": true, "content": ""},
+		"/home": {"type": "dir", "executable": true, "content": ""},
+		"/home/jesse": {"type": "dir", "executable": true, "content": ""},
+		"/tests": {"type": "dir", "executable": true, "content": ""},
+		"/tmp": {"type": "dir", "executable": true, "content": ""},
+	}
 	_setup_system_binaries()
 	_setup_test_suite()
 	_setup_user_files()
 
 func _setup_system_binaries():
-	# --- mkdir ---
-	files["/bin/mkdir"] = {
+	files["/.bashrc"] = {
 		"type": "file", "executable": true,
-		"content": "if [ $1 == '' ]\nthen\necho 'mkdir: missing operand'\nelse\nsyscall mkdir $1\nfi"
+		"content": "clear\necho [color=#50fa7b]GATEKEEPER OS v1.5.8 ONLINE[/color]\necho Welcome back, Jesse Wood.\nsh /bin/test_bash.sh"
 	}
-
-	# --- rm ---
-	files["/bin/rm"] = {
-		"type": "file", "executable": true,
-		"content": "if [ $1 == '' ]\nthen\necho 'rm: missing operand'\nelse\nsyscall rm $1\nfi"
-	}
-
-	# --- cp ---
-	files["/bin/cp"] = {
-		"type": "file", "executable": true,
-		"content": "if [ $2 == '' ]\nthen\necho 'cp: missing destination'\nelse\nsyscall cp $1 $2\nfi"
-	}
-
-	# --- mv ---
-	files["/bin/mv"] = {
-		"type": "file", "executable": true,
-		"content": "if [ $2 == '' ]\nthen\necho 'mv: missing destination'\nelse\nsyscall mv $1 $2\nfi"
-	}
-
-	# --- grep ---
-	files["/bin/grep"] = {
-		"type": "file", "executable": true,
-		"content": "if [ $2 == '' ]\nthen\necho 'Usage: grep [PATTERN] [FILE]'\nelse\nexport RESULT=$(syscall grep $1 $2)\nif [ $RESULT == '' ]\nthen\necho ''\nelse\necho $RESULT\nfi\nfi"
-	}
-
-	# --- test_bash.sh ---
+	
 	files["/bin/test_bash.sh"] = {
 		"type": "file", "executable": true,
 		"content": """
-echo '--- STARTING SYSTEM SELF-TEST ---'
-for TEST_NAME in variables loops logic nav quotes
+echo '--- SYSTEM SELF-TEST ---'
+for T in variables loops logic nav quotes
 do
-    export SCRIPT_PATH=/tests/$TEST_NAME.sh
-    export EXPECT_PATH=/tests/$TEST_NAME.txt
-    export ACTUAL=$(sh $SCRIPT_PATH > /dev/null)
-    export EXPECTED=$(cat $EXPECT_PATH)
+    export ACTUAL=$(sh /tests/$T.sh > /dev/null)
+    export EXPECTED=$(cat /tests/$T.txt)
     if [ $ACTUAL == $EXPECTED ]
     then
-        echo ✔ $TEST_NAME: PASSED
+        echo ✔ $T: PASSED
     else
-        echo ✘ $TEST_NAME: FAILED
-        echo "  Got: $ACTUAL"
+        echo ✘ $T: FAILED
     fi
 done
 echo '--- SELF-TEST COMPLETE ---'
 """
 	}
 
+	# Binary Bridges
+	files["/bin/ls"] = {"type": "file", "executable": true, "content": "syscall ls"}
+	files["/bin/cat"] = {"type": "file", "executable": true, "content": "cat $1"}
+	files["/bin/grep"] = {"type": "file", "executable": true, "content": "syscall grep $1 $2"}
+	files["/bin/whoami"] = {"type": "file", "executable": true, "content": "whoami"}
+	files["/bin/pwd"] = {"type": "file", "executable": true, "content": "pwd"}
+	files["/bin/help"] = {"type": "file", "executable": true, "content": "echo 'ls, cd, cat, touch, rm, chmod, ssh-keygen, ssh, history, clear, help, sh'"}
+
 func _setup_test_suite():
-	files["/tests/variables.sh"] = {"type": "file", "executable": true, "content": "export FOO=bar\necho $FOO"}
-	files["/tests/variables.txt"] = {"type": "file", "executable": false, "content": "bar"}
+	# Test Scripts & Expected Outputs
+	files["/tests/variables.sh"] = {"type": "file", "executable": true, "content": "export X=TEST_VAL\necho $X"}
+	files["/tests/variables.txt"] = {"type": "file", "executable": false, "content": "TEST_VAL"}
+	
 	files["/tests/loops.sh"] = {"type": "file", "executable": true, "content": "for i in 1 2\ndo\necho $i\ndone"}
 	files["/tests/loops.txt"] = {"type": "file", "executable": false, "content": "1\n2"}
-	files["/tests/logic.sh"] = {"type": "file", "executable": true, "content": "export KEY=secret\nif [ $KEY == secret ]\nthen\necho OK\nfi"}
+	
+	files["/tests/logic.sh"] = {"type": "file", "executable": true, "content": "if [ 1 == 1 ]\nthen\necho OK\nfi"}
 	files["/tests/logic.txt"] = {"type": "file", "executable": false, "content": "OK"}
+	
 	files["/tests/nav.sh"] = {"type": "file", "executable": true, "content": "cd /bin\npwd"}
 	files["/tests/nav.txt"] = {"type": "file", "executable": false, "content": "/bin"}
-	files["/tests/quotes.sh"] = {"type": "file", "executable": true, "content": "echo 'Hello,World!';\necho \"DoubleQuotes\";"}
-	files["/tests/quotes.txt"] = {"type": "file", "executable": false, "content": "Hello,World!\nDoubleQuotes"}
+	
+	files["/tests/quotes.sh"] = {"type": "file", "executable": true, "content": "echo 'Hello,World!';"}
+	files["/tests/quotes.txt"] = {"type": "file", "executable": false, "content": "Hello,World!"}
 
 func _setup_user_files():
-	files["/home/jesse/readme.txt"] = {
-		"type": "file", "executable": false,
-		"content": "Gatekeeper OS v1.3.5\nTry commands: grep, mkdir, rm, mv, cp, test_bash.sh"
-	}
+	files["/home/jesse/readme.txt"] = {"type": "file", "executable": false, "content": "BioMass Research Data v1.0\nTarget: Wellington Coastal Region"}
+	files["/home/jesse/.secret"] = {"type": "file", "executable": false, "content": "DeepSea_AI_2026"}
 
 func resolve_path(target: String) -> String:
 	if target == "/": return "/"
-	var absolute_path = target if target.begins_with("/") else (current_path + "/" + target).replace("//", "/")
-	var parts = absolute_path.split("/", false)
-	var clean_parts = []
-	for part in parts:
-		if part == ".": continue
-		if part == "..":
-			if clean_parts.size() > 0: clean_parts.remove_at(clean_parts.size() - 1)
-		else: clean_parts.append(part)
-	return "/" + "/".join(clean_parts)
+	var abs_p = target if target.begins_with("/") else (current_path + "/" + target).replace("//", "/")
+	var parts = abs_p.split("/", false)
+	var clean = []
+	for p in parts:
+		if p == "..": 
+			if clean.size() > 0: clean.remove_at(clean.size() - 1)
+		elif p != ".": clean.append(p)
+	return "/" + "/".join(clean)

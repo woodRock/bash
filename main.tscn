@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://drvo2xfuambll" path="res://boot_screen.gd" id="1_0xm2m"]
 [ext_resource type="PackedScene" uid="uid://bak8xtydxjinh" path="res://terminal.tscn" id="1_ig7tw"]
 [ext_resource type="PackedScene" uid="uid://bwy7rnh47bj33" path="res://editor.tscn" id="3_h2yge"]
+[ext_resource type="PackedScene" uid="uid://bvr536ueomc0d" path="res://chat.tscn" id="4_1bvp3"]
 
 [node name="main" type="Control" unique_id=1195358671]
 layout_mode = 3
@@ -12,7 +13,20 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="BootScreen" type="ColorRect" parent="." unique_id=566365119 node_paths=PackedStringArray("terminal_node")]
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=1719770810]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="LeftColumn" type="Control" parent="HBoxContainer" unique_id=259050622]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.0
+
+[node name="BootScreen" type="ColorRect" parent="HBoxContainer/LeftColumn" unique_id=566365119 node_paths=PackedStringArray("terminal_node")]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -23,7 +37,7 @@ color = Color(0, 0, 0, 1)
 script = ExtResource("1_0xm2m")
 terminal_node = NodePath("../Terminal")
 
-[node name="BootLog" type="RichTextLabel" parent="BootScreen" unique_id=831728353]
+[node name="BootLog" type="RichTextLabel" parent="HBoxContainer/LeftColumn/BootScreen" unique_id=831728353]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -32,10 +46,19 @@ grow_horizontal = 2
 grow_vertical = 2
 bbcode_enabled = true
 
-[node name="Terminal" parent="." unique_id=130733384 instance=ExtResource("1_ig7tw")]
+[node name="Terminal" parent="HBoxContainer/LeftColumn" unique_id=130733384 instance=ExtResource("1_ig7tw")]
 layout_mode = 1
+offset_right = 601.0
 metadata/_edit_use_anchors_ = true
 
-[node name="Editor" parent="." unique_id=1640097386 instance=ExtResource("3_h2yge")]
+[node name="Editor" parent="HBoxContainer/LeftColumn" unique_id=1640097386 instance=ExtResource("3_h2yge")]
 visible = false
+layout_mode = 1
+offset_right = 8.0
+
+[node name="RightColumn" type="Control" parent="HBoxContainer" unique_id=1013595321]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Chat" parent="HBoxContainer/RightColumn" unique_id=1811223331 instance=ExtResource("4_1bvp3")]
 layout_mode = 1
