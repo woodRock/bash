@@ -7,70 +7,65 @@ extends Control
 func _ready():
 	chat_log.clear()
 	chat_log.bbcode_enabled = true
-	
-	# Connect to the Gatekeeper Terminal signal
 	var terminal = get_tree().root.find_child("LineEdit", true, false)
 	if terminal:
-		if not terminal.is_connected("command_executed", _on_terminal_activity):
-			terminal.command_executed.connect(_on_terminal_activity)
+		terminal.command_executed.connect(_on_terminal_activity)
 	
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(1.0).timeout
 	display_current_mission()
 
 func display_current_mission():
-	if MissionManager.current_mission_id >= MissionManager.missions.size():
-		chat_log.append_text("\n[color=#50fa7b][b]SYSTEM:[/b] All research objectives met for today.[/color]")
-		objective_label.text = "Objective: Complete"
+	var active_missions = MissionManager.get_current_missions()
+	
+	if MissionManager.current_mission_id >= active_missions.size():
+		_handle_day_transition()
 		return
 
-	var m = MissionManager.missions[MissionManager.current_mission_id]
-	var narrative = "\n[b][color=#f1fa8c]" + m.sender + ":[/color][/b] " + m.text + "\n"
-	chat_log.append_text(narrative)
+	var m = active_missions[MissionManager.current_mission_id]
+	chat_log.append_text("\n[b][color=#f1fa8c]" + m.sender + ":[/color][/b] " + m.text + "\n")
 	objective_label.text = m.objective
-	
 	_scroll_to_bottom()
 
-func _on_terminal_activity(cmd: String, response: String):
-	if MissionManager.current_mission_id >= MissionManager.missions.size():
-		return
+func _handle_day_transition():
+	if MissionManager.current_day < MissionManager.days.size() - 1:
+		chat_log.append_text("\n[color=#ff79c6]CONNECTION CLOSED. SHIFT ENDED.[/color]")
+		await get_tree().create_timer(2.0).timeout
+		
+		# Move to Day 2
+		MissionManager.current_day += 1
+		MissionManager.current_mission_id = 0
+		
+		# Update VFS to Day 2 state
+		var terminal = get_tree().root.find_child("LineEdit", true, false)
+		if terminal and terminal.VFS:
+			terminal.VFS.setup_day(MissionManager.current_day)
+		
+		chat_log.clear()
+		chat_log.append_text("[color=#50fa7b]SYSTEM REBOOTED. DAY 2 COMMENCING...[/color]\n")
+		display_current_mission()
+	else:
+		chat_log.append_text("\n[color=#50fa7b]ALL CHAPTERS COMPLETE.[/color]")
 
-	var m = MissionManager.missions[MissionManager.current_mission_id]
+func _on_terminal_activity(cmd: String, response: String):
+	var active_missions = MissionManager.get_current_missions()
+	if MissionManager.current_mission_id >= active_missions.size(): return
+
+	var m = active_missions[MissionManager.current_mission_id]
 	var success = false
 
-	# ADVANCED VALIDATION LOGIC
 	match m.type:
 		MissionManager.TaskType.COMMAND:
-			# Check command without leading/trailing whitespace
-			if cmd.strip_edges() == m.value.strip_edges():
-				success = true
-		
+			if cmd.strip_edges() == m.value.strip_edges(): success = true
 		MissionManager.TaskType.OUTPUT:
-			# FIX: Strip the response to remove trailing newlines (\n) from VFS content
-			var clean_response = response.strip_edges()
-			var target_value = m.value.strip_edges()
-			if target_value in clean_response:
-				success = true
-				
+			if m.value.strip_edges() in response.strip_edges(): success = true
 		MissionManager.TaskType.VFS_STATE:
 			var terminal = get_tree().root.find_child("LineEdit", true, false)
-			if terminal and terminal.VFS:
-				var target_path = terminal.VFS.resolve_path(m.value)
-				if terminal.VFS.files.has(target_path):
-					success = true
+			if terminal.VFS.files.has(terminal.VFS.resolve_path(m.value)): success = true
 
 	if success:
-		complete_task()
-
-func complete_task():
-	MissionManager.current_mission_id += 1
-	
-	if MissionManager.current_mission_id >= MissionManager.missions.size():
-		chat_log.append_text("\n[color=#ff5555][b]SYSTEM:[/b] Connection terminated by Administrator.[/color]")
-		chat_log.append_text("\n[color=#f1fa8c]DAY 1 COMPLETE: The Cook Strait Anomaly[/color]")
-		objective_label.text = "Status: Awaiting Next Shift"
-	else:
-		chat_log.append_text("\n[color=#50fa7b]>> LOG SYNC SUCCESSFUL.[/color]")
-		await get_tree().create_timer(1.2).timeout
+		MissionManager.current_mission_id += 1
+		chat_log.append_text("\n[color=#50fa7b]>> Success.[/color]")
+		await get_tree().create_timer(1.0).timeout
 		display_current_mission()
 
 func _scroll_to_bottom():
