@@ -62,11 +62,16 @@ func _on_terminal_activity(cmd: String, response: String):
 		complete_task()
 
 func complete_task():
-	chat_log.append_text("\n[color=#50fa7b]>> Connection confirmed. Decrypting...[/color]")
 	MissionManager.current_mission_id += 1
 	
-	await get_tree().create_timer(1.2).timeout
-	display_current_mission()
+	if MissionManager.current_mission_id >= MissionManager.missions.size():
+		chat_log.append_text("\n[color=#ff5555][b]SYSTEM:[/b] Connection terminated by Administrator.[/color]")
+		chat_log.append_text("\n[color=#f1fa8c]DAY 1 COMPLETE: The Cook Strait Anomaly[/color]")
+		objective_label.text = "Status: Awaiting Next Shift"
+	else:
+		chat_log.append_text("\n[color=#50fa7b]>> LOG SYNC SUCCESSFUL.[/color]")
+		await get_tree().create_timer(1.2).timeout
+		display_current_mission()
 
 func _scroll_to_bottom():
 	await get_tree().process_frame
