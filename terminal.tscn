@@ -1,0 +1,41 @@
+[gd_scene format=3 uid="uid://bak8xtydxjinh"]
+
+[ext_resource type="Script" uid="uid://d348ckbcexo0m" path="res://rich_text_label.gd" id="1_7d6gb"]
+[ext_resource type="Script" uid="uid://08cknfj5d6po" path="res://terminal.gd" id="1_b5qft"]
+[ext_resource type="Script" uid="uid://dgvsc6jjtbg84" path="res://line_edit.gd" id="1_sxuvd"]
+
+[node name="Terminal" type="PanelContainer" unique_id=130733384]
+custom_minimum_size = Vector2(600, 0)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_b5qft")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=78612614]
+layout_mode = 2
+
+[node name="RichTextLabel" type="RichTextLabel" parent="VBoxContainer" unique_id=71304259]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 200)
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+bbcode_enabled = true
+scroll_following = true
+script = ExtResource("1_7d6gb")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=632435318]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBoxContainer/HBoxContainer" unique_id=582491768]
+layout_mode = 2
+text = "jesse@OS:~$"
+
+[node name="LineEdit" type="LineEdit" parent="VBoxContainer/HBoxContainer" unique_id=1784161423]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(500, 30)
+layout_mode = 2
+caret_blink = true
+script = ExtResource("1_sxuvd")

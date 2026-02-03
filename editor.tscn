@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://bwy7rnh47bj33"]
+
+[ext_resource type="Script" uid="uid://cgde0roxdq2oc" path="res://editor.gd" id="1_wlowb"]
+
+[node name="Editor" type="PanelContainer" unique_id=1640097386]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_wlowb")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=1993118342]
+layout_mode = 2
+
+[node name="FileNameLabel" type="Label" parent="VBoxContainer" unique_id=1297099752]
+layout_mode = 2
+
+[node name="CodeInput" type="CodeEdit" parent="VBoxContainer" unique_id=72851770]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HelpLabel" type="Label" parent="VBoxContainer" unique_id=185156486]
+layout_mode = 2
