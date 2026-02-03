@@ -14,7 +14,6 @@ func _ready():
 		if not terminal.is_connected("command_executed", _on_terminal_activity):
 			terminal.command_executed.connect(_on_terminal_activity)
 	
-	# Initial delay to simulate Wellington lab network sync
 	await get_tree().create_timer(1.5).timeout
 	display_current_mission()
 
@@ -25,8 +24,6 @@ func display_current_mission():
 		return
 
 	var m = MissionManager.missions[MissionManager.current_mission_id]
-	
-	# Display the narrative message from Dr. Aris
 	var narrative = "\n[b][color=#f1fa8c]" + m.sender + ":[/color][/b] " + m.text + "\n"
 	chat_log.append_text(narrative)
 	objective_label.text = m.objective
@@ -43,17 +40,18 @@ func _on_terminal_activity(cmd: String, response: String):
 	# ADVANCED VALIDATION LOGIC
 	match m.type:
 		MissionManager.TaskType.COMMAND:
-			# Simple check: did the user type the exact string?
-			if cmd.strip_edges() == m.value:
+			# Check command without leading/trailing whitespace
+			if cmd.strip_edges() == m.value.strip_edges():
 				success = true
 		
 		MissionManager.TaskType.OUTPUT:
-			# Check if the terminal output contains the required data string
-			if m.value in response:
+			# FIX: Strip the response to remove trailing newlines (\n) from VFS content
+			var clean_response = response.strip_edges()
+			var target_value = m.value.strip_edges()
+			if target_value in clean_response:
 				success = true
 				
 		MissionManager.TaskType.VFS_STATE:
-			# Deep check: reach into the VFS to see if the file/folder actually exists
 			var terminal = get_tree().root.find_child("LineEdit", true, false)
 			if terminal and terminal.VFS:
 				var target_path = terminal.VFS.resolve_path(m.value)
@@ -64,10 +62,9 @@ func _on_terminal_activity(cmd: String, response: String):
 		complete_task()
 
 func complete_task():
-	chat_log.append_text("\n[color=#50fa7b]>> Task Verified. Updating logs...[/color]")
+	chat_log.append_text("\n[color=#50fa7b]>> Connection confirmed. Decrypting...[/color]")
 	MissionManager.current_mission_id += 1
 	
-	# Brief pause before Dr. Aris sends the next update
 	await get_tree().create_timer(1.2).timeout
 	display_current_mission()
 

@@ -7,59 +7,73 @@ enum TaskType { COMMAND, OUTPUT, VFS_STATE }
 var missions = [
 	{
 		"sender": "Dr. Aris",
-		"text": "Jesse, glad you're in. Let's verify the environment. List the files in your current directory.",
+		"text": "Jesse, thanks for stepping in. Dr. Vance left her PhD thesis unfinished before her... departure. We need to clear her workspace. Start by listing her home directory.",
 		"objective": "Run 'ls'",
 		"type": TaskType.COMMAND,
 		"value": "ls"
 	},
 	{
 		"sender": "Dr. Aris",
-		"text": "Hidden configs are key to the biomass logs. Use [color=#50fa7b]ls -a[/color] to find the hidden recovery key.",
+		"text": "It looks empty. She must have archived everything. But Vance was paranoid—she often hid system configs. Check for hidden files.",
 		"objective": "Run 'ls -a'",
 		"type": TaskType.COMMAND,
 		"value": "ls -a"
 	},
 	{
 		"sender": "Dr. Aris",
-		"text": "Now, read that hidden key's content. We need the specific code string inside.",
-		"objective": "Cat the .secret file",
+		"text": "A [color=#f1fa8c].journal[/color] file? Interesting. Open it. We need to see if she left any passwords for the biomass server.",
+		"objective": "Cat the .journal file",
 		"type": TaskType.OUTPUT,
-		"value": "DeepSea_AI_2026"
+		"value": "something is wrong with the sensor array"
 	},
-	# --- NEW MISSIONS ---
 	{
 		"sender": "Dr. Aris",
-		"text": "We need to keep these logs organized. Create a new directory named [color=#50fa7b]backups[/color] to store our previous simulation runs.",
-		"objective": "Run 'mkdir backups'",
+		"text": "She was always complaining about sensors. Jesse, create a directory called [color=#50fa7b]recovery[/color]. We'll move her 'junk' there so I can audit it later.",
+		"objective": "Run 'mkdir recovery'",
 		"type": TaskType.VFS_STATE,
-		"value": "/home/jesse/backups"
+		"value": "/home/jesse/recovery"
 	},
 	{
-		"sender": "Dr. Aris",
-		"text": "Good work. Now, let's prepare a new data capture. Create an empty file named [color=#50fa7b]capture_01.log[/color] inside that new backups folder.",
-		"objective": "Run 'touch backups/capture_01.log'",
+		"sender": "SYSTEM (Intercepted)",
+		"text": "[color=#ff5555][b]PRIVATE MSG:[/b][/color] Jesse, don't trust Aris. He's deleting my logs. Use [color=#50fa7b]mv[/color] to hide the [color=#f1fa8c]readme.txt[/color] into your new [color=#f1fa8c]recovery[/color] folder before he wipes the root.",
+		"objective": "Move readme.txt to recovery/",
 		"type": TaskType.VFS_STATE,
-		"value": "/home/jesse/backups/capture_01.log"
+		"value": "/home/jesse/recovery/readme.txt"
 	},
+	# --- NEW MISSION: NAVIGATION ---
 	{
-		"sender": "Dr. Aris",
-		"text": "Wait, I think there's a reference to a 'Wellington' coordinate in your [color=#50fa7b]readme.txt[/color]. Can you use [color=#50fa7b]grep[/color] to find the line containing 'Wellington'?",
-		"objective": "Run 'grep Wellington readme.txt'",
+		"sender": "Dr. Vance (Script Fragment)",
+		"text": "They're watching the root directory. You need to move into the [color=#f1fa8c]recovery[/color] folder to work on the files safely.",
+		"objective": "Run 'cd recovery' then 'pwd'",
 		"type": TaskType.OUTPUT,
-		"value": "Wellington"
+		"value": "/home/jesse/recovery" # Validated by the PWD output in the response
 	},
 	{
-		"sender": "Dr. Aris",
-		"text": "The capture file was a mistake; it's corrupting the backup sequence. Remove the [color=#50fa7b]capture_01.log[/color] file immediately.",
-		"objective": "Run 'rm backups/capture_01.log'",
-		"type": TaskType.COMMAND, # Or VFS_STATE with a check for file absence if you prefer
-		"value": "rm backups/capture_01.log"
-	},
-	{
-		"sender": "Dr. Aris",
-		"text": "Final check for the morning. Navigate into the [color=#50fa7b]backups[/color] directory and confirm your current location.",
-		"objective": "Run 'cd backups' then 'pwd'",
+		"sender": "Dr. Vance (Journal Entry)",
+		"text": "The biomass in the Cook Strait... it's not algae. It's [color=#ffb86c]silicon-based[/color]. Search the logs for that keyword.",
+		"objective": "Run 'grep silicon readme.txt'",
 		"type": TaskType.OUTPUT,
-		"value": "/home/jesse/backups"
+		"value": "silicon-based"
+	},
+	{
+		"sender": "Dr. Aris",
+		"text": "Jesse? I see you moved into the recovery folder. Use [color=#50fa7b]nano[/color] to open that readme. I want you to add your name to the 'Authorized Access' list at the bottom.",
+		"objective": "Edit readme.txt with nano",
+		"type": TaskType.COMMAND,
+		"value": "nano readme.txt"
+	},
+	{
+		"sender": "Dr. Vance (Script Fragment)",
+		"text": "I've encrypted the coordinates. Duplicate the [color=#f1fa8c].secret[/color] key into the [color=#f1fa8c]tmp[/color] folder so my automated boat can find it.",
+		"objective": "Run 'cp ../.secret /tmp/.secret'", # Teaching relative pathing
+		"type": TaskType.VFS_STATE,
+		"value": "/tmp/.secret"
+	},
+	{
+		"sender": "Dr. Aris",
+		"text": "Wait... a file copy to /tmp? What are you doing? Navigate back home and delete that [color=#f1fa8c].secret[/color] file immediately.",
+		"objective": "Run 'cd ..' then 'rm .secret'",
+		"type": TaskType.COMMAND,
+		"value": "rm .secret"
 	}
 ]
