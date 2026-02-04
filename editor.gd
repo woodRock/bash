@@ -2,7 +2,7 @@ extends PanelContainer
 
 # SIGNALS - LineEdit.gd expects these
 signal editor_closed 
-signal file_saved(path, content) # The missing signal for Day 3 forensics
+signal file_saved(path, content) # Critical for Day 3 forensics
 
 @onready var file_label = $VBoxContainer/FileNameLabel
 @onready var code_input = $VBoxContainer/CodeInput
@@ -17,22 +17,31 @@ func _ready() -> void:
 
 func setup_bash_highlighter():
 	var highlighter = CodeHighlighter.new()
-	highlighter.symbol_color = Color("#5dade2")      
-	highlighter.number_color = Color("#f39c12")      
-	highlighter.function_color = Color("#f4d03f")    
-	highlighter.member_variable_color = Color("#a2d9ce") 
+	
+	# 1. Colors (Dracula Palette)
+	highlighter.symbol_color = Color("#5dade2")      # Blue
+	highlighter.number_color = Color("#f39c12")      # Orange
+	highlighter.function_color = Color("#f4d03f")    # Yellow
+	highlighter.member_variable_color = Color("#a2d9ce") # Sage
 
+	# 2. Logic Keywords
 	var keywords = ["if", "then", "else", "fi", "for", "while", "do", "done", "exit", "return"]
 	for word in keywords:
-		highlighter.add_keyword_color(word, Color("#ff79c6")) 
+		highlighter.add_keyword_color(word, Color("#ff79c6")) # Pink
 
+	# 3. System Commands
 	var commands = ["ls", "cd", "cat", "touch", "nano", "pwd", "grep", "sudo", "chmod", "sleep"]
 	for cmd in commands:
-		highlighter.add_keyword_color(cmd, Color("#50fa7b")) 
+		highlighter.add_keyword_color(cmd, Color("#50fa7b")) # Green
 
-	highlighter.add_color_region("#", "", Color("#6272a4"), true)     
-	highlighter.add_color_region('"', '"', Color("#f1fa8c"), false)   
-	highlighter.add_color_region("'", "'", Color("#f1fa8c"), false)   
+	# 4. Strings and Comments
+	highlighter.add_color_region("#", "", Color("#6272a4"), true)     # Muted Blue
+	highlighter.add_color_region('"', '"', Color("#f1fa8c"), false)   # Yellow
+	highlighter.add_color_region("'", "'", Color("#f1fa8c"), false)   # Yellow
+
+	# 5. Variable Templates (The New Expansion Highlighting)
+	# This highlights ${VAR} in bright Cyan for better forensic visibility
+	highlighter.add_color_region("${", "}", Color("#8be9fd"), false)  
 
 	code_input.syntax_highlighter = highlighter
 
@@ -48,9 +57,11 @@ func open_file(path: String, vfs):
 func _input(event):
 	if not is_visible_in_tree(): return
 	if event is InputEventKey and event.pressed and event.ctrl_pressed:
+		# Save (Ctrl+O or Ctrl+S)
 		if event.keycode == KEY_O or event.keycode == KEY_S:
 			save_file()
 			get_viewport().set_input_as_handled()
+		# Exit (Ctrl+X)
 		elif event.keycode == KEY_X:
 			exit_editor()
 			get_viewport().set_input_as_handled()
@@ -60,7 +71,7 @@ func save_file():
 		var new_content = code_input.text
 		vfs_reference.files[current_file_path]["content"] = new_content
 		
-		# CRITICAL: Emit signal so MissionManager can check the code immediately
+		# CRITICAL: Notify MissionManager to check the code immediately on save
 		file_saved.emit(current_file_path, new_content)
 		
 		help_label.text = "FILE SAVED!"

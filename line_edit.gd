@@ -13,23 +13,26 @@ var VFS: Node
 # --- KERNEL STATE ---
 var focus_loop_enabled = false
 var cmd_history = [] 
+var history_index = -1
 var env_vars = {
 	"USER": "jesse_wood", 
 	"PWD": "/home/jesse", 
 	"PATH": "/bin", 
-	"PROMPT": "[color=#00FF41]user@gatekeeper[/color]"
+	"PROMPT": "[color=#00FF41]user@gatekeeper[/color]",
+	"?": "0" 
 }
 
 var block_buffer = []
 var nesting_depth = 0
 var boot_screen_timer: float = 4.0
+var recursion_depth = 0
+const MAX_RECURSION_DEPTH = 100
 
 func _ready() -> void:
 	VFS = VFS_scene.instantiate()
 	get_tree().root.add_child.call_deferred(VFS) 
 	VFS.current_path = env_vars["PWD"]
 	
-	# Global Autoload Registration
 	MissionManager.terminal = self
 	MissionManager.vfs_node = VFS
 	
@@ -42,7 +45,7 @@ func _ready() -> void:
 	await get_tree().create_timer(boot_screen_timer).timeout 
 	
 	focus_loop_enabled = true
-	await process_input_line("sh /.bashrc")
+	await _run_atomic_command("sh /.bashrc", true)
 	grab_focus()
 
 func _setup_node_references():
@@ -65,172 +68,363 @@ func _on_command_submitted(new_text: String) -> void:
 	
 	if nesting_depth == 0:
 		cmd_history.append(line)
+		history_index = -1 
 		append_to_log(env_vars["PROMPT"] + ":" + VFS.current_path + "$ " + line)
 	else:
 		append_to_log("> " + line)
 		
+	# 1. Run the command first
 	var result = await process_input_line(line)
 	
-	# Trigger Mission Check for COMMAND type
-	MissionManager.check_mission_progress(0, line)
+	# 2. THEN check progress (so touch/mkdir files actually exist now)
+	MissionManager.check_mission_progress(MissionManager.TaskType.COMMAND, line)
+	MissionManager.check_mission_progress(MissionManager.TaskType.VFS_STATE, line)
+	MissionManager.check_mission_progress(MissionManager.TaskType.OUTPUT, result)
 	
 	command_executed.emit(line, result)
 	text = ""; grab_focus()
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and scroll_v:
+	if event is InputEventKey and event.pressed:
 		match event.keycode:
-			KEY_PAGEUP:
-				scroll_v.scroll_vertical -= 250
+			KEY_TAB:
+				_handle_autocomplete()
 				get_viewport().set_input_as_handled()
-			KEY_PAGEDOWN:
-				scroll_v.scroll_vertical += 250
+			KEY_UP:
+				_handle_history(1)
 				get_viewport().set_input_as_handled()
+			KEY_DOWN:
+				_handle_history(-1)
+				get_viewport().set_input_as_handled()
+
+func _handle_history(direction: int):
+	if cmd_history.is_empty(): return
+	if history_index == -1: history_index = cmd_history.size()
+	history_index = clampi(history_index - direction, 0, cmd_history.size() - 1)
+	text = cmd_history[history_index]
+	caret_column = text.length()
+
+func _handle_autocomplete():
+	var current_text = text.strip_edges()
+	if current_text == "": return
+	var tokens = current_text.split(" ")
+	var last_token = tokens[-1]
+	var possibilities = []
+	
+	if tokens.size() == 1:
+		for path in VFS.files.keys():
+			if path.begins_with("/bin/"):
+				var cmd_name = path.get_file()
+				if cmd_name.begins_with(last_token): possibilities.append(cmd_name)
+	
+	for path in VFS.files.keys():
+		if path.begins_with(VFS.current_path):
+			var file_name = path.trim_prefix(VFS.current_path).trim_prefix("/")
+			if not "/" in file_name and file_name.begins_with(last_token):
+				possibilities.append(file_name)
+				
+	if possibilities.size() == 1:
+		tokens[-1] = possibilities[0]
+		text = " ".join(tokens)
+		caret_column = text.length()
+	elif possibilities.size() > 1:
+		append_to_log("\n" + "  ".join(possibilities))
 
 func process_input_line(line: String, is_silent: bool = false) -> String:
 	var clean_line = line.strip_edges()
 	if clean_line == "" or clean_line.begins_with("#"): return ""
-	
-	# Handle Redirection (>)
-	if ">" in clean_line and not ("if [" in clean_line or "for " in clean_line):
-		return await _handle_redirection(clean_line, is_silent)
-	
-	var words = clean_line.split(" ")
-	var is_start = words[0] == "if" or words[0] == "for"
-	var is_end = clean_line == "fi" or clean_line == "done"
-	
-	if is_start: nesting_depth += 1
-	
-	var result = ""
-	if nesting_depth > 0 or is_end:
-		if is_end: nesting_depth = max(0, nesting_depth - 1)
-		block_buffer.append(clean_line)
-		if nesting_depth == 0:
-			var full_block = block_buffer.duplicate(); block_buffer.clear()
-			result = await execute_block(full_block, true)
-	else:
-		result = await parse_single_command(clean_line, is_silent)
 
+	var regex = RegEx.new(); regex.compile("(&&|\\|\\|)")
+	var matches = regex.search_all(clean_line)
+	var segments = []; var operators = []; var last_index = 0
+	
+	for m in matches:
+		segments.append(clean_line.substr(last_index, m.get_start() - last_index))
+		operators.append(m.get_string()); last_index = m.get_end()
+	segments.append(clean_line.substr(last_index))
+
+	var all_results = []
+	for i in range(segments.size()):
+		var cmd_segment = segments[i].strip_edges()
+		if cmd_segment == "": continue
+		if i > 0:
+			var op = operators[i-1]
+			if (op == "&&" and env_vars["?"] != "0") or (op == "||" and env_vars["?"] == "0"): 
+				continue 
+		var result = await _run_atomic_command(cmd_segment, is_silent)
+		if result != "":
+			all_results.append(result)
+	
+	return "\n".join(all_results) if all_results.size() > 0 else ""
+
+func _run_atomic_command(cmd_text: String, is_silent: bool) -> String:
+	var clean_cmd = cmd_text.strip_edges()
+	if clean_cmd == "": return ""
+	
+	recursion_depth += 1
+	if recursion_depth > MAX_RECURSION_DEPTH:
+		recursion_depth -= 1
+		return "bash: maximum recursion depth exceeded"
+	
+	var words = clean_cmd.split(" ")
+	var is_start = (words[0] == "if" or words[0] == "for")
+	var is_end = (clean_cmd == "fi" or clean_cmd == "done")
+	
+	if nesting_depth > 0:
+		if is_start: nesting_depth += 1
+		if is_end: nesting_depth = max(0, nesting_depth - 1)
+		block_buffer.append(clean_cmd)
+		if nesting_depth == 0:
+			var block_res = await execute_block(block_buffer.duplicate(), true)
+			block_buffer.clear()
+			recursion_depth -= 1
+			return block_res
+		recursion_depth -= 1
+		return ""
+	
+	if is_start:
+		nesting_depth = 1
+		block_buffer.append(clean_cmd)
+		recursion_depth -= 1
+		return ""
+
+	if "*" in clean_cmd: clean_cmd = _expand_globs(clean_cmd)
+	var result = await parse_single_command(clean_cmd, is_silent)
+	env_vars["?"] = "1" if ("not found" in result or "denied" in result or "No such" in result) else "0"
+	
 	if not is_silent and result != "" and nesting_depth == 0:
 		append_to_log(result)
-		# Trigger Mission Check for OUTPUT type
-		MissionManager.check_mission_progress(1, result)
-		
-	# Trigger Mission Check for VFS_STATE type
-	MissionManager.check_mission_progress(2, "")
+	
+	recursion_depth -= 1
 	return result
 
-func _handle_redirection(line: String, is_silent: bool) -> String:
-	var parts = line.split(">", true, 1)
-	var cmd = parts[0].strip_edges()
-	var file_path = VFS.resolve_path(parts[1].strip_edges())
-	var output = await process_input_line(cmd, true)
-	
-	if not VFS.files.has(file_path):
-		VFS.files[file_path] = {"type": "file", "executable": false, "content": ""}
-	VFS.files[file_path].content = output
-	
-	if is_silent or file_path == "/dev/null": return output
-	return "Output redirected to " + parts[1].strip_edges()
+func _expand_globs(line: String) -> String:
+	var parts = line.split(" ")
+	var new_parts = []
+	for p in parts:
+		if "*" in p:
+			var matches = []
+			var pattern = "^" + p.replace(".", "\\.").replace("*", ".*") + "$"
+			var regex = RegEx.new(); regex.compile(pattern)
+			for file_path in VFS.files.keys():
+				var rel = file_path.trim_prefix(VFS.current_path).trim_prefix("/")
+				if not "/" in rel and regex.search(rel): matches.append(rel)
+			if matches.size() > 0:
+				new_parts.append(" ".join(matches))
+				continue
+		new_parts.append(p)
+	return " ".join(new_parts)
 
 func execute_block(lines: Array, is_silent: bool = false) -> String:
 	var header = lines[0]; var body = lines.slice(1, -1); var output = []
 	if header.begins_with("if"):
-		var condition = header.get_slice("[", 1).get_slice("]", 0).strip_edges()
-		var run = evaluate_condition(condition)
+		var condition = ""
+		if "[" in header and "]" in header:
+			var start_idx = header.find("[")
+			var end_idx = header.rfind("]")
+			if start_idx != -1 and end_idx != -1:
+				condition = header.substr(start_idx + 1, end_idx - start_idx - 1).strip_edges()
+		
+		var run = await evaluate_condition(condition)
 		for line in body:
 			var cl = line.strip_edges()
-			if cl == "then" or cl == "do": continue
+			if cl in ["then", "do", ""]: continue
 			if cl == "else": run = !run; continue
 			if run:
-				var res = await process_input_line(line, true)
+				var res = await _run_atomic_command(line, true)
 				if res != "": output.append(res)
 	elif header.begins_with("for"):
-		var parts = header.split(" ", false); var var_name = parts[1]; var items = parts.slice(3)
-		for item in items:
-			env_vars[var_name] = item
-			for line in body:
-				if line.strip_edges() == "do": continue
-				var res = await process_input_line(line, true)
-				if res != "": output.append(res)
-	return "\n".join(output)
+		var words_header = header.split(" ", false)
+		if words_header.size() >= 2:
+			var var_name = words_header[1]
+			var items = []
+			var in_index = words_header.find("in")
+			if in_index != -1 and in_index < words_header.size() - 1:
+				items = words_header.slice(in_index + 1)
+				var expanded_items = []
+				for item in items:
+					if item.begins_with("$"):
+						var var_name_to_expand = item.trim_prefix("$")
+						if var_name_to_expand.begins_with("{"):
+							var_name_to_expand = var_name_to_expand.trim_prefix("{").trim_suffix("}")
+						var value = str(env_vars.get(var_name_to_expand, ""))
+						if value != "":
+							expanded_items.append(value)
+					else:
+						expanded_items.append(item)
+				items = expanded_items
+			
+			for item in items:
+				env_vars[var_name] = item
+				var processed_body = []
+				var i = 0
+				while i < body.size():
+					var line = body[i]
+					var stripped = line.strip_edges()
+					if stripped in ["do", ""]: 
+						i += 1
+						continue
+					var words = stripped.split(" ", false)
+					if words.size() > 0 and (words[0] == "if" or words[0] == "for"):
+						var nested_lines = [stripped]
+						var nested_depth = 1
+						i += 1
+						while i < body.size() and nested_depth > 0:
+							var nested_line = body[i]
+							var nested_stripped = nested_line.strip_edges()
+							nested_lines.append(nested_stripped)
+							var nested_words = nested_stripped.split(" ", false)
+							if nested_words.size() > 0:
+								if nested_words[0] == "if" or nested_words[0] == "for":
+									nested_depth += 1
+								elif nested_stripped == "fi" or nested_stripped == "done":
+									nested_depth -= 1
+							i += 1
+						processed_body.append({"type": "block", "lines": nested_lines})
+					else:
+						processed_body.append({"type": "command", "line": line})
+						i += 1
+				
+				for item_data in processed_body:
+					if item_data.type == "block":
+						var nested_result = await execute_block(item_data.lines, true)
+						if nested_result != "": output.append(nested_result)
+					else:
+						var res = await _run_atomic_command(item_data.line, true)
+						if res != "": output.append(res)
+	
+	if output.size() > 0: return "\n".join(output)
+	return ""
+
+func evaluate_condition(cond: String) -> bool:
+	var exp = cond.strip_edges()
+	if exp.begins_with("["): exp = exp.trim_prefix("[").trim_suffix("]").strip_edges()
+	
+	var cmd_sub_regex = RegEx.new()
+	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
+	var cmd_matches = cmd_sub_regex.search_all(exp)
+	for i in range(cmd_matches.size() - 1, -1, -1):
+		var m = cmd_matches[i]
+		var sub_cmd = m.get_string(1)
+		var sub_result = await _run_atomic_command(sub_cmd, true)
+		exp = exp.erase(m.get_start(), m.get_end() - m.get_start())
+		exp = exp.insert(m.get_start(), sub_result.strip_edges())
+	
+	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
+	var matches = var_regex.search_all(exp)
+	for i in range(matches.size() - 1, -1, -1):
+		var m = matches[i]
+		var var_name = m.get_string(1) if m.get_string(1) != "" else m.get_string(2)
+		exp = exp.erase(m.get_start(), m.get_end() - m.get_start())
+		exp = exp.insert(m.get_start(), str(env_vars.get(var_name, "")))
+	if exp.begins_with("-d "):
+		var p = VFS.resolve_path(exp.get_slice(" ", 1))
+		return VFS.files.has(p) and VFS.files[p].type == "dir"
+	if exp.begins_with("-f "):
+		var p = VFS.resolve_path(exp.get_slice(" ", 1))
+		return VFS.files.has(p) and VFS.files[p].type == "file"
+	if "==" in exp:
+		var s = exp.split("==")
+		if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
+	return false
 
 func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 	var proc = cmd_text.strip_edges()
 	
-	# Subshell Expansion
-	var sub_regex = RegEx.new(); sub_regex.compile("\\$\\((.*?)\\)")
-	var sub_match = sub_regex.search(proc)
-	while sub_match:
-		var sub_res = await process_input_line(sub_match.get_string(1), true)
-		proc = proc.replace(sub_match.get_string(0), sub_res.strip_edges())
-		sub_match = sub_regex.search(proc)
+	# Detect Redirection
+	var redirect_to = ""
+	if " > " in proc:
+		var r_parts = proc.split(" > ", true, 1)
+		proc = r_parts[0].strip_edges()
+		redirect_to = r_parts[1].strip_edges()
+
+	# Command Substitution
+	var cmd_sub_regex = RegEx.new()
+	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
+	var cmd_matches = cmd_sub_regex.search_all(proc)
+	for i in range(cmd_matches.size() - 1, -1, -1):
+		var m = cmd_matches[i]
+		var sub_cmd = m.get_string(1)
+		var sub_result = await _run_atomic_command(sub_cmd, true)
+		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
+		proc = proc.insert(m.get_start(), sub_result.strip_edges())
 	
-	# Variable Expansion (Supporting $VAR and ${VAR})
-	var var_regex = RegEx.new()
-	var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
+	# Variable Expansion
+	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
 	var matches = var_regex.search_all(proc)
 	for i in range(matches.size() - 1, -1, -1):
 		var m = matches[i]
 		var var_name = m.get_string(1) if m.get_string(1) != "" else m.get_string(2)
-		var value = str(env_vars.get(var_name, ""))
 		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
-		proc = proc.insert(m.get_start(), value)
+		proc = proc.insert(m.get_start(), str(env_vars.get(var_name, "")))
 
-	# Tokenization
 	var regex = RegEx.new(); regex.compile("\"([^\"]*)\"|'([^']*)'|([^\\s]+)")
 	var tokens = []
 	for m in regex.search_all(proc):
 		var t = m.get_string(1) if m.get_string(1) != "" else (m.get_string(2) if m.get_string(2) != "" else m.get_string(3))
 		if t.ends_with(";"): t = t.substr(0, t.length() - 1)
 		tokens.append(t)
-	
 	if tokens.size() == 0: return ""
-	var cmd = tokens[0].to_lower(); var args = tokens.slice(1)
+	
+	var cmd = tokens[0].to_lower()
+	var args = tokens.slice(1)
+	var final_result = ""
 	
 	match cmd:
-		"echo": return " ".join(args)
-		"whoami": return env_vars["USER"]
-		"pwd": return VFS.current_path
-		"history": return "\n".join(cmd_history)
-		"clear": if output_log: output_log.clear(); return ""
-		"export": handle_export(args); return ""
-		"chmod": execute_chmod(args); return ""
-		"ls", "mkdir", "touch", "rm", "grep", "nano", "cp", "mv": return await execute_syscall(tokens)
-		"cat": return execute_cat(args)
-		"cd": return execute_cd(args)
-		"sh": return await execute_sh(args)
-		"syscall": return await execute_syscall(args)
+		"echo": final_result = " ".join(args)
+		"pwd": final_result = VFS.current_path
+		"clear": 
+			if output_log: output_log.clear()
+			final_result = ""
+		"export": 
+			handle_export(args)
+			final_result = ""
+		"chmod": 
+			execute_chmod(args)
+			final_result = ""
+		"ls", "mkdir", "touch", "rm", "grep", "nano", "cp", "mv": 
+			final_result = await execute_syscall(tokens)
+		"cat": final_result = execute_cat(args)
+		"cd": final_result = execute_cd(args)
+		"sh": final_result = await execute_sh(args)
 		_:
 			var path = find_executable(cmd)
-			if path != "": return await execute_sh([path] + args)
-			return "bash: " + cmd + ": command not found"
-	
-	return "" 
+			if path != "": final_result = await execute_sh([path] + args)
+			else: final_result = "bash: " + cmd + ": command not found"
+
+	if redirect_to != "":
+		var p = VFS.resolve_path(redirect_to)
+		VFS.create_file(p, final_result, "file")
+		return ""
+	return final_result
 
 func execute_syscall(args: Array) -> String:
 	if args.size() == 0: return ""
-	match args[0]:
+	var cmd = args[0]
+	match cmd:
 		"ls":
+			var target = VFS.current_path
+			if args.size() > 1: target = VFS.resolve_path(args[1])
+			if not VFS.files.has(target): return "ls: cannot access '" + args[1] + "': No such directory"
 			var out = []
-			var show_hidden = ("-a" in args)
 			for p in VFS.files.keys():
-				if p.begins_with(VFS.current_path) and p != VFS.current_path:
-					var rel = p.trim_prefix(VFS.current_path).trim_prefix("/")
+				if p.begins_with(target) and p != target:
+					var rel = p.trim_prefix(target).trim_prefix("/")
 					if not "/" in rel:
-						if rel.begins_with(".") and not show_hidden: continue
-						var is_dir = VFS.files[p].type == "dir"
-						var col = "#5dade2" if is_dir else ("#50fa7b" if VFS.files[p].get("executable", false) else "#ffffff")
-						out.append("[color=" + col + "]" + rel + ("/" if is_dir else "") + "[/color]")
+						var data = VFS.files[p]
+						var col = "#ffffff"
+						if data.type == "dir": col = "#5dade2"
+						elif data.get("executable", false): col = "#50fa7b"
+						out.append("[color=" + col + "]" + rel + "[/color]")
 			return "  ".join(out)
 		"mkdir":
 			if args.size() < 2: return "mkdir: missing operand"
-			var p = VFS.resolve_path(args[1]); VFS.files[p] = {"type": "dir", "executable": true, "content": ""}
+			VFS.create_file(VFS.resolve_path(args[1]), "", "dir")
 			return ""
 		"touch":
-			if args.size() < 2: return "touch: missing file"
+			if args.size() < 2: return "touch: missing file operand"
 			var p = VFS.resolve_path(args[1])
-			if not VFS.files.has(p): VFS.files[p] = {"type": "file", "executable": false, "content": ""}
+			if not VFS.files.has(p): VFS.create_file(p, "", "file")
 			return ""
 		"rm":
 			if args.size() < 2: return "rm: missing operand"
@@ -239,39 +433,39 @@ func execute_syscall(args: Array) -> String:
 			return "rm: " + args[1] + ": No such file"
 		"cp":
 			if args.size() < 3: return "cp: missing destination"
-			var src = VFS.resolve_path(args[1])
-			var dest = VFS.resolve_path(args[2])
-			if VFS.files.has(src):
-				if VFS.files.has(dest) and VFS.files[dest].type == "dir":
-					dest = (dest + "/" + src.get_file()).replace("//", "/")
-				VFS.files[dest] = VFS.files[src].duplicate()
-				return ""
-			return "cp: cannot stat '" + args[1] + "': No such file"
+			var s = VFS.resolve_path(args[1]); var d = VFS.resolve_path(args[2])
+			if VFS.files.has(s): VFS.files[d] = VFS.files[s].duplicate(); return ""
+			return "cp: " + args[1] + ": No such file"
 		"mv":
 			if args.size() < 3: return "mv: missing destination"
-			var src = VFS.resolve_path(args[1])
-			var dest = VFS.resolve_path(args[2])
-			if VFS.files.has(src):
-				if VFS.files.has(dest) and VFS.files[dest].type == "dir":
-					dest = (dest + "/" + src.get_file()).replace("//", "/")
-				VFS.files[dest] = VFS.files[src]
-				VFS.files.erase(src)
-				return ""
-			return "mv: cannot stat '" + args[1] + "': No such file"
+			var s_path = VFS.resolve_path(args[1])
+			var d_path = VFS.resolve_path(args[2])
+			
+			if not VFS.files.has(s_path):
+				return "mv: cannot stat '" + args[1] + "': No such file or directory"
+			
+			# If destination is an existing directory, move source INTO it
+			if VFS.files.has(d_path) and VFS.files[d_path].type == "dir":
+				# Manual path join: ensures no double slashes
+				var file_name = s_path.get_file()
+				if d_path.ends_with("/"):
+					d_path = d_path + file_name
+				else:
+					d_path = d_path + "/" + file_name
+
+			VFS.move_item(s_path, d_path)
+			return ""
 		"grep":
 			if args.size() < 3: return "usage: grep [pattern] [file]"
 			var pat = args[1].to_lower(); var p = VFS.resolve_path(args[2])
 			if VFS.files.has(p):
-				var matches = []
+				var ms = []
 				for l in VFS.files[p].content.split("\n"):
-					if pat in l.to_lower(): matches.append(l)
-				return "\n".join(matches)
+					if pat in l.to_lower(): ms.append(l)
+				return "\n".join(ms)
+			return "grep: " + args[2] + ": No such file"
 		"nano":
-			if args.size() < 2: return "usage: nano [file]"
-			var p = VFS.resolve_path(args[1])
-			if editor:
-				focus_loop_enabled = false
-				editor.open_file(p, VFS)
+			if editor and args.size() > 1: editor.open_file(VFS.resolve_path(args[1]), VFS)
 			return ""
 	return ""
 
@@ -279,72 +473,54 @@ func execute_sh(args: Array) -> String:
 	if args.size() == 0: return ""
 	var p = VFS.resolve_path(args[0])
 	if VFS.files.has(p):
-		if not VFS.files[p].get("executable", false):
-			return "bash: " + args[0] + ": Permission denied"
-		var prev_pwd = VFS.current_path; var prev_env = env_vars.duplicate()
-		var outputs = []
-		for line in VFS.files[p].content.split("\n", false):
-			var res = await process_input_line(line, true)
-			if res != "" and res != null: outputs.append(res)
-		VFS.current_path = prev_pwd; env_vars = prev_env
-		return "\n".join(outputs)
+		if not VFS.files[p].get("executable", false): return "bash: " + args[0] + ": Permission denied"
+		var saved_nesting = nesting_depth
+		var saved_buffer = block_buffer.duplicate()
+		nesting_depth = 0; block_buffer.clear()
+		var outs = []
+		var lines = VFS.files[p].content.split("\n", false)
+		for line in lines:
+			var res = await process_input_line(line.strip_edges(), true)
+			if res != "": outs.append(res)
+		nesting_depth = saved_nesting; block_buffer = saved_buffer
+		return "\n".join(outs)
 	return "sh: " + args[0] + ": not found"
 
 func execute_cd(args: Array) -> String:
-	var target = args[0] if args.size() > 0 else "/home/jesse"
-	var p = VFS.resolve_path(target)
+	var p = VFS.resolve_path(args[0] if args.size() > 0 else "/home/jesse")
 	if VFS.files.has(p) and VFS.files[p].type == "dir":
 		VFS.current_path = p; env_vars["PWD"] = p; return ""
-	return "cd: " + target + ": No such directory"
+	return "cd: No such directory"
 
 func execute_cat(args: Array) -> String:
 	if args.size() == 0: return ""
 	var p = VFS.resolve_path(args[0])
-	if VFS.files.has(p):
-		if VFS.files[p].type == "dir": return "cat: " + args[0] + ": Is a directory"
-		return VFS.files[p].content
-	return "cat: " + args[0] + ": No such file"
+	return VFS.files[p].content if VFS.files.has(p) else "cat: No such file"
 
 func execute_chmod(args: Array):
 	if args.size() < 2: return
 	var path = VFS.resolve_path(args[1])
-	if VFS.files.has(path) and "+x" in args[0]:
-		VFS.files[path]["executable"] = true
-
-func _on_editor_saved(path: String, content: String):
-	VFS.files[path].content = content
-	# Trigger Mission Check for FILE_CONTENT type
-	MissionManager.check_mission_progress(3, path)
-
-func _on_editor_closed():
-	focus_loop_enabled = true; grab_focus()
-	append_to_log("[color=#50fa7b]Nano: session ended.[/color]")
-	MissionManager.check_mission_progress(3, "")
-
-func find_executable(cmd: String) -> String:
-	for p in env_vars["PATH"].split(":", false):
-		var target = VFS.resolve_path(p + "/" + cmd)
-		if VFS.files.has(target): return target
-	return ""
+	if VFS.files.has(path) and "+x" in args[0]: VFS.files[path]["executable"] = true
 
 func handle_export(args: Array):
 	var pair = " ".join(args).split("=", true, 1)
-	if pair.size() == 2: env_vars[pair[0]] = pair[1].strip_edges().replace('"', '').replace("'", "")
+	if pair.size() == 2: env_vars[pair[0]] = pair[1].strip_edges().replace('"', '')
 
-func evaluate_condition(cond: String) -> bool:
-	var exp = cond
-	for k in env_vars.keys(): exp = exp.replace("$" + k, str(env_vars[k]))
-	if "==" in exp:
-		var s = exp.split("==")
-		return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
-	return false
+func find_executable(cmd: String) -> String:
+	var target = VFS.resolve_path("/bin/" + cmd)
+	return target if VFS.files.has(target) else ""
 
 func append_to_log(msg: String) -> void:
-	if not output_log: return
-	output_log.append_text(msg + "\n")
+	if output_log: output_log.append_text(msg + "\n")
 	await get_tree().process_frame
-	if scroll_v:
-		scroll_v.set_deferred("scroll_vertical", scroll_v.get_v_scroll_bar().max_value)
+	if scroll_v: scroll_v.set_deferred("scroll_vertical", scroll_v.get_v_scroll_bar().max_value)
+
+func _on_editor_saved(path: String, content: String):
+	VFS.files[path].content = content
+	MissionManager.check_mission_progress(3, path)
+
+func _on_editor_closed():
+	focus_loop_enabled = true; grab_focus(); MissionManager.check_mission_progress(3, "")
 
 func _on_focus_changed(node: Control) -> void:
 	if focus_loop_enabled and node != self and not (editor and editor.visible): 
