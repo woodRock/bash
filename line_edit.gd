@@ -29,6 +29,10 @@ func _ready() -> void:
 	get_tree().root.add_child.call_deferred(VFS) 
 	VFS.current_path = env_vars["PWD"]
 	
+	# Global Autoload Registration
+	MissionManager.terminal = self
+	MissionManager.vfs_node = VFS
+	
 	_setup_node_references()
 	
 	text_submitted.connect(_on_command_submitted)
@@ -43,8 +47,11 @@ func _ready() -> void:
 
 func _setup_node_references():
 	editor = get_tree().current_scene.find_child("Editor", true, false)
-	if editor and not editor.is_connected("editor_closed", _on_editor_closed):
-		editor.editor_closed.connect(_on_editor_closed)
+	if editor:
+		if not editor.is_connected("file_saved", _on_editor_saved):
+			editor.file_saved.connect(_on_editor_saved)
+		if not editor.is_connected("editor_closed", _on_editor_closed):
+			editor.editor_closed.connect(_on_editor_closed)
 	
 	output_log = get_tree().current_scene.find_child("RichTextLabel", true, false)
 	if output_log:
@@ -63,6 +70,10 @@ func _on_command_submitted(new_text: String) -> void:
 		append_to_log("> " + line)
 		
 	var result = await process_input_line(line)
+	
+	# Trigger Mission Check for COMMAND type
+	MissionManager.check_mission_progress(0, line)
+	
 	command_executed.emit(line, result)
 	text = ""; grab_focus()
 
@@ -79,6 +90,10 @@ func _gui_input(event: InputEvent) -> void:
 func process_input_line(line: String, is_silent: bool = false) -> String:
 	var clean_line = line.strip_edges()
 	if clean_line == "" or clean_line.begins_with("#"): return ""
+	
+	# Handle Redirection (>)
+	if ">" in clean_line and not ("if [" in clean_line or "for " in clean_line):
+		return await _handle_redirection(clean_line, is_silent)
 	
 	var words = clean_line.split(" ")
 	var is_start = words[0] == "if" or words[0] == "for"
@@ -98,7 +113,25 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 
 	if not is_silent and result != "" and nesting_depth == 0:
 		append_to_log(result)
+		# Trigger Mission Check for OUTPUT type
+		MissionManager.check_mission_progress(1, result)
+		
+	# Trigger Mission Check for VFS_STATE type
+	MissionManager.check_mission_progress(2, "")
 	return result
+
+func _handle_redirection(line: String, is_silent: bool) -> String:
+	var parts = line.split(">", true, 1)
+	var cmd = parts[0].strip_edges()
+	var file_path = VFS.resolve_path(parts[1].strip_edges())
+	var output = await process_input_line(cmd, true)
+	
+	if not VFS.files.has(file_path):
+		VFS.files[file_path] = {"type": "file", "executable": false, "content": ""}
+	VFS.files[file_path].content = output
+	
+	if is_silent or file_path == "/dev/null": return output
+	return "Output redirected to " + parts[1].strip_edges()
 
 func execute_block(lines: Array, is_silent: bool = false) -> String:
 	var header = lines[0]; var body = lines.slice(1, -1); var output = []
@@ -125,7 +158,7 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 	var proc = cmd_text.strip_edges()
 	
-	# Subshell & Variable Expansion
+	# Subshell Expansion
 	var sub_regex = RegEx.new(); sub_regex.compile("\\$\\((.*?)\\)")
 	var sub_match = sub_regex.search(proc)
 	while sub_match:
@@ -133,9 +166,18 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		proc = proc.replace(sub_match.get_string(0), sub_res.strip_edges())
 		sub_match = sub_regex.search(proc)
 	
-	for key in env_vars.keys():
-		proc = proc.replace("$" + key, str(env_vars[key]))
+	# Variable Expansion (Supporting $VAR and ${VAR})
+	var var_regex = RegEx.new()
+	var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
+	var matches = var_regex.search_all(proc)
+	for i in range(matches.size() - 1, -1, -1):
+		var m = matches[i]
+		var var_name = m.get_string(1) if m.get_string(1) != "" else m.get_string(2)
+		var value = str(env_vars.get(var_name, ""))
+		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
+		proc = proc.insert(m.get_start(), value)
 
+	# Tokenization
 	var regex = RegEx.new(); regex.compile("\"([^\"]*)\"|'([^']*)'|([^\\s]+)")
 	var tokens = []
 	for m in regex.search_all(proc):
@@ -159,8 +201,6 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"cd": return execute_cd(args)
 		"sh": return await execute_sh(args)
 		"syscall": return await execute_syscall(args)
-		"ssh-keygen": return await execute_ssh_keygen(args)
-		"ssh": return await execute_ssh_connection(args)
 		_:
 			var path = find_executable(cmd)
 			if path != "": return await execute_sh([path] + args)
@@ -173,16 +213,14 @@ func execute_syscall(args: Array) -> String:
 	match args[0]:
 		"ls":
 			var out = []
-			var show_hidden = false
-			for arg in args:
-				if arg == "-a": show_hidden = true
+			var show_hidden = ("-a" in args)
 			for p in VFS.files.keys():
 				if p.begins_with(VFS.current_path) and p != VFS.current_path:
 					var rel = p.trim_prefix(VFS.current_path).trim_prefix("/")
 					if not "/" in rel:
 						if rel.begins_with(".") and not show_hidden: continue
 						var is_dir = VFS.files[p].type == "dir"
-						var col = "#5dade2" if is_dir else "#ffffff"
+						var col = "#5dade2" if is_dir else ("#50fa7b" if VFS.files[p].get("executable", false) else "#ffffff")
 						out.append("[color=" + col + "]" + rel + ("/" if is_dir else "") + "[/color]")
 			return "  ".join(out)
 		"mkdir":
@@ -204,7 +242,6 @@ func execute_syscall(args: Array) -> String:
 			var src = VFS.resolve_path(args[1])
 			var dest = VFS.resolve_path(args[2])
 			if VFS.files.has(src):
-				# FIX: Check if destination is a directory
 				if VFS.files.has(dest) and VFS.files[dest].type == "dir":
 					dest = (dest + "/" + src.get_file()).replace("//", "/")
 				VFS.files[dest] = VFS.files[src].duplicate()
@@ -215,7 +252,6 @@ func execute_syscall(args: Array) -> String:
 			var src = VFS.resolve_path(args[1])
 			var dest = VFS.resolve_path(args[2])
 			if VFS.files.has(src):
-				# FIX: Check if destination is a directory
 				if VFS.files.has(dest) and VFS.files[dest].type == "dir":
 					dest = (dest + "/" + src.get_file()).replace("//", "/")
 				VFS.files[dest] = VFS.files[src]
@@ -275,23 +311,15 @@ func execute_chmod(args: Array):
 	if VFS.files.has(path) and "+x" in args[0]:
 		VFS.files[path]["executable"] = true
 
-func execute_ssh_keygen(args: Array) -> String:
-	var ssh_dir = "/home/jesse/.ssh"
-	if not VFS.files.has(ssh_dir):
-		VFS.files[ssh_dir] = {"type": "dir", "executable": true, "content": ""}
-	append_to_log("Generating public/private rsa key pair...")
-	await get_tree().create_timer(0.8).timeout
-	VFS.files[ssh_dir + "/id_rsa"] = {"type": "file", "executable": false, "content": "PRIVATE KEY"}
-	VFS.files[ssh_dir + "/id_rsa.pub"] = {"type": "file", "executable": false, "content": "PUBLIC KEY"}
-	return "Keys generated in " + ssh_dir
-
-func execute_ssh_connection(args: Array) -> String:
-	if args.size() == 0: return "usage: ssh user@host"
-	return "Connected to " + args[0]
+func _on_editor_saved(path: String, content: String):
+	VFS.files[path].content = content
+	# Trigger Mission Check for FILE_CONTENT type
+	MissionManager.check_mission_progress(3, path)
 
 func _on_editor_closed():
 	focus_loop_enabled = true; grab_focus()
 	append_to_log("[color=#50fa7b]Nano: session ended.[/color]")
+	MissionManager.check_mission_progress(3, "")
 
 func find_executable(cmd: String) -> String:
 	for p in env_vars["PATH"].split(":", false):
