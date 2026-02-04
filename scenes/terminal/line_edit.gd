@@ -44,7 +44,8 @@ var manual_pages = {
 	"nano": "Usage: nano [file]\nOpens the text editor.\nCtrl+O to Save, Ctrl+X to Exit.",
 	"export": "Usage: export VAR=VALUE\nSets an environment variable.",
 	"reboot": "Usage: reboot\nRestarts the kernel. Required to apply system updates.",
-	"for": "Usage: for VAR in ITEM1 ITEM2; do ...; done\nLoops through a list of items.\nExample: for i in 1 2 3; do echo $i; done"
+	"for": "Usage: for VAR in ITEM1 ITEM2; do ...; done\nLoops through a list of items.\nExample: for i in 1 2 3; do echo $i; done",
+	"tree": "Usage: tree [directory]\nDisplays a recursive visual directory structure."
 }
 
 func _ready() -> void:
@@ -228,6 +229,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"reboot":
 			clear_output()
 			reboot_requested.emit()
+			final_result = "System rebooting..."
 		"nano":
 			if args.size() > 0:
 				var path = _resolve(args[0])
@@ -238,7 +240,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		# --- DOCUMENTATION COMMANDS ---
 		"help":
 			final_result = "AVAILABLE COMMANDS:\n"
-			final_result += "[color=#bd93f9]filesystem:[/color] ls, cd, pwd, mkdir, touch, rm, cp, mv\n"
+			final_result += "[color=#bd93f9]filesystem:[/color] ls, cd, pwd, mkdir, touch, rm, cp, mv, tree\n"
 			final_result += "[color=#bd93f9]system:[/color]     cat, grep, chmod, export, reboot\n"
 			final_result += "[color=#bd93f9]tools:[/color]      nano, sh\n\n"
 			final_result += "Type 'man [command]' for detailed usage."
@@ -251,7 +253,8 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 					final_result = "No manual entry for " + topic
 			else:
 				final_result = "What manual page do you want? (e.g., 'man grep')"
-		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv": 
+		# ADDED 'tree' to syscall list
+		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree": 
 			final_result = await execute_syscall(tokens)
 		"cat": 
 			final_result = execute_cat(args)
@@ -333,6 +336,21 @@ func execute_syscall(args: Array) -> String:
 						elif data.get("executable", false): col = "#50fa7b"
 						out.append("[color=" + col + "]" + rel + "[/color]")
 			return "\n".join(out) if long_format else "  ".join(out)
+		
+		# --- TREE COMMAND IMPLEMENTATION ---
+		"tree":
+			var target = VFS.current_path
+			if args.size() > 1:
+				target = _resolve(args[1])
+			
+			if not VFS.files.has(target):
+				return "tree: " + args[1] + ": No such directory"
+			
+			var out_arr = []
+			out_arr.append("[color=#5dade2]" + (target if target == "/" else target.get_file()) + "[/color]")
+			_recursive_tree(target, "", out_arr)
+			return "\n".join(out_arr)
+			
 		"mkdir":
 			if args.size() < 2: return "mkdir: missing operand"
 			VFS.create_file(_resolve(args[1]), "", "dir"); return ""
@@ -367,6 +385,38 @@ func execute_syscall(args: Array) -> String:
 				return "\n".join(ms)
 			return "grep: " + args[2] + ": No such file"
 	return ""
+
+# --- RECURSIVE TREE HELPER ---
+func _recursive_tree(base_path: String, prefix: String, out: Array):
+	# Find immediate children
+	var children = []
+	for p in VFS.files.keys():
+		if p == base_path: continue
+		if p.begins_with(base_path):
+			var rel = p.trim_prefix(base_path)
+			if rel.begins_with("/"): rel = rel.trim_prefix("/")
+			if not "/" in rel and rel != "":
+				children.append(p)
+	
+	children.sort()
+	
+	for i in range(children.size()):
+		var child_full = children[i]
+		var is_last = (i == children.size() - 1)
+		var connector = "└── " if is_last else "├── "
+		
+		var node_name = child_full.get_file()
+		var node_data = VFS.files[child_full]
+		
+		var col = "#ffffff"
+		if node_data.type == "dir": col = "#5dade2"
+		elif node_data.get("executable", false): col = "#50fa7b"
+		
+		out.append(prefix + connector + "[color=" + col + "]" + node_name + "[/color]")
+		
+		if node_data.type == "dir":
+			var next_prefix = prefix + ("    " if is_last else "│   ")
+			_recursive_tree(child_full, next_prefix, out)
 
 func execute_chmod(args: Array):
 	if args.size() < 2: return
