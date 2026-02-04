@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://dhbt10hp1iv70"]
 
-[ext_resource type="Script" uid="uid://csv4nta3cvylb" path="res://virtual_file_system.gd" id="1_sq1vx"]
+[ext_resource type="Script" uid="uid://csv4nta3cvylb" path="res://core/virtual_file_system.gd" id="1_sq1vx"]
 
 [node name="VirtualFileSystem" type="Node" unique_id=2072957878]
 script = ExtResource("1_sq1vx")

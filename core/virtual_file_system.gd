@@ -22,7 +22,26 @@ func reset_vfs():
 
 func setup_day(day_index: int):
 	if day_index == 0: # Day 1: Vance Disappearance
-		files["/home/jesse/readme.txt"] = {"type": "file", "executable": false, "content": "Preliminary data: silicon-based structure."}
+		files["/home/jesse/readme.md"] = {
+			"type": "file",
+			"executable": false,
+			"content": """# DEEP SEA INSTITUTE: PROJECT GATEKEEPER
+> **PROPERTY OF DR. VANCE - DO NOT PURGE**
+
+## RESEARCH LOG: ARCHIVE 09-B
+Preliminary data analysis of the Wellington Harbor sediment samples indicates a **highly irregular silicon-based structure**. Unlike local carbon-based biomass, this entity demonstrates a recursive growth pattern consistent with a synthetic origin. 
+
+[ALERT]: Local sensor arrays are picking up significant signal drift. Dr. Aris insists it is hardware fatigue, but the timestamps match the entity's expansion.
+
+## AUTHORIZED ACCESS LOG
+The following personnel are cleared for Project Gatekeeper terminal use. Please sign below to acknowledge the corporate non-disclosure agreement.
+
+- **Dr. Aris** (Lead Administrator)
+- **Dr. Vance** (Senior Research - DISMISSED)
+- **Jesse Wood** (Research Assistant)
+
+**SIGNATURE:** """
+		}
 		files["/home/jesse/.secret"] = {"type": "file", "executable": false, "content": "DeepSea_AI_2026"}
 		files["/home/jesse/.journal"] = {"type": "file", "executable": false, "content": "something is wrong with the sensor array"}
 	
@@ -115,15 +134,6 @@ func _setup_tests():
 	files["/tests/if_else.sh"] = {"type": "file", "executable": true, "content": "if [ 1 == 2 ]\nthen\necho BAD\nelse\necho GOOD\nfi"}
 	files["/tests/if_else.txt"] = {"type": "file", "executable": false, "content": "GOOD"}
 	
-	files["/tests/if_var.sh"] = {"type": "file", "executable": true, "content": "export TEST=hello\nif [ $TEST == hello ]\nthen\necho MATCH\nfi"}
-	files["/tests/if_var.txt"] = {"type": "file", "executable": false, "content": "MATCH"}
-	
-	files["/tests/if_file.sh"] = {"type": "file", "executable": true, "content": "if [ -f /tests/if_file.txt ]\nthen\necho EXISTS\nfi"}
-	files["/tests/if_file.txt"] = {"type": "file", "executable": false, "content": "EXISTS"}
-	
-	files["/tests/if_dir.sh"] = {"type": "file", "executable": true, "content": "if [ -d /tests ]\nthen\necho DIR_OK\nfi"}
-	files["/tests/if_dir.txt"] = {"type": "file", "executable": false, "content": "DIR_OK"}
-	
 	# 5. Nested Control Flow Tests
 	files["/tests/nested_if_for.sh"] = {"type": "file", "executable": true, "content": "for x in 1 2\ndo\nif [ $x == 1 ]\nthen\necho first\nelse\necho second\nfi\ndone"}
 	files["/tests/nested_if_for.txt"] = {"type": "file", "executable": false, "content": "first\nsecond"}
@@ -163,7 +173,7 @@ func _setup_tests():
 	files["/tests/nav_complex.sh"] = {"type": "file", "executable": true, "content": "cd /home/jesse\ncd ../../bin\npwd"}
 	files["/tests/nav_complex.txt"] = {"type": "file", "executable": false, "content": "/bin"}
 	
-	# 8. Glob Expansion Tests (if globs work in your system)
+	# 8. Glob Expansion Tests
 	files["/tests/glob_test.sh"] = {"type": "file", "executable": true, "content": "cd /tests\necho *.txt"}
 	files["/tests/glob_test.txt"] = {"type": "file", "executable": false, "content": "and_false.txt and_true.txt cat_test.txt cmdsub_basic.txt cmdsub_nested.txt cmdsub_pwd.txt for_numbers.txt for_simple.txt for_vars.txt glob_test.txt if_dir.txt if_else.txt if_false.txt if_file.txt if_true.txt if_var.txt logic.txt loops.txt nested_for_for.txt nested_if_for.txt or_skip.txt pwd_test.txt quotes.txt var_basic.txt var_braces.txt var_concat.txt var_multiple.txt variables.txt"}
 	
@@ -191,7 +201,7 @@ func _setup_tests():
 	files["/tests/multiline_echo.sh"] = {"type": "file", "executable": true, "content": "echo line1\necho line2\necho line3"}
 	files["/tests/multiline_echo.txt"] = {"type": "file", "executable": false, "content": "line1\nline2\nline3"}
 	
-	# Master test runner - automatically runs all tests and compares with expected output
+	# Master test runner
 	files["/bin/run_all_tests.sh"] = {
 		"type": "file",
 		"executable": true,
@@ -206,239 +216,50 @@ then
 echo ✓ PASS: $TEST_NAME
 else
 echo ✗ FAIL: $TEST_NAME
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo === TEST SUITE COMPLETE ==="""}
-	
-	# Categorized test runner - shows results grouped by feature
-	files["/bin/run_tests_grouped.sh"] = {
-		"type": "file",
-		"executable": true,
-		"content": """echo === BASH TEST SUITE - GROUPED BY FEATURE ===
-echo
-echo [Variable Expansion]
-for TEST in var_basic var_braces var_multiple var_concat
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Command Substitution]
-for TEST in cmdsub_basic cmdsub_pwd cmdsub_nested
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [For Loops]
-for TEST in for_simple for_numbers for_vars
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [If Statements]
-for TEST in if_true if_false if_else if_var if_file if_dir
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Nested Control Flow]
-for TEST in nested_if_for nested_for_for
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Logical Operators]
-for TEST in and_true or_skip
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Navigation]
-for TEST in pwd_test nav_dot nav_dotdot nav_double_dotdot nav_relative nav_complex
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Quote Handling]
-for TEST in quote_single quote_double quote_var
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Complex Integration]
-for TEST in complex_pipeline complex_cmdsub
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Edge Cases]
-for TEST in empty_var multiline_echo
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
-fi
-done
-echo
-echo [Original Core Tests]
-for TEST in variables loops logic nav quotes
-do
-export ACTUAL=$(sh /tests/$TEST.sh)
-export EXPECTED=$(cat /tests/$TEST.txt)
-if [ $ACTUAL == $EXPECTED ]
-then
-echo ✓ $TEST
-else
-echo ✗ $TEST
-echo   Expected: $EXPECTED
-echo   Actual:   $ACTUAL
+echo    Expected: $EXPECTED
+echo    Actual:   $ACTUAL
 fi
 done
 echo
 echo === TEST SUITE COMPLETE ==="""}
 
 func create_file(path: String, content: String = "", type: String = "file"):
-	# Ensure the parent directory exists (basic check)
 	var parent = path.get_base_dir()
 	if not files.has(parent) and parent != "/":
-		# If you want to be strict, you'd return an error here. 
-		# For a simple sim, we'll just create the entry.
 		pass
-	
 	files[path] = {
 		"type": type,
-		"executable": (type == "dir"), # Directories are usually executable by default in sims
+		"executable": (type == "dir"),
 		"content": content
 	}
 	
 func move_item(from_path: String, to_path: String):
 	var is_dir = files[from_path].type == "dir"
-	
 	if not is_dir:
-		# Simple file move
 		files[to_path] = files[from_path]
 		files.erase(from_path)
 	else:
-		# Directory move: must move the folder AND all children
 		var to_erase = []
 		var to_add = {}
-		
 		for p in files.keys():
 			if p == from_path or p.begins_with(from_path + "/"):
 				var new_path = p.replace(from_path, to_path)
 				to_add[new_path] = files[p]
 				to_erase.append(p)
-		
-		for p in to_erase:
-			files.erase(p)
-		for p in to_add:
-			files[p] = to_add[p]
+		for p in to_erase: files.erase(p)
+		for p in to_add: files[p] = to_add[p]
 
-# We also need to add resolve_path to this script specifically 
-# so the Terminal can call it reliably.
 func resolve_path(target: String) -> String:
 	var path = ""
 	if target.begins_with("/"):
 		path = target
 	else:
 		path = current_path + "/" + target
-	
 	var parts = path.split("/")
 	var resolved = []
 	for part in parts:
 		if part == "" or part == ".": continue
 		elif part == "..":
 			if resolved.size() > 0: resolved.pop_back()
-		else:
-			resolved.append(part)
-	
+		else: resolved.append(part)
 	return "/" + "/".join(resolved) if resolved.size() > 0 else "/"

@@ -1,9 +1,9 @@
 [gd_scene format=3 uid="uid://bi6ehiwwh0crt"]
 
-[ext_resource type="Script" uid="uid://drvo2xfuambll" path="res://boot_screen.gd" id="1_0xm2m"]
-[ext_resource type="PackedScene" uid="uid://bak8xtydxjinh" path="res://terminal.tscn" id="1_ig7tw"]
-[ext_resource type="PackedScene" uid="uid://bwy7rnh47bj33" path="res://editor.tscn" id="3_h2yge"]
-[ext_resource type="PackedScene" uid="uid://bvr536ueomc0d" path="res://chat.tscn" id="4_1bvp3"]
+[ext_resource type="Script" uid="uid://drvo2xfuambll" path="res://scenes/boot/boot_screen.gd" id="1_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://bak8xtydxjinh" path="res://scenes/terminal/terminal.tscn" id="1_ig7tw"]
+[ext_resource type="PackedScene" uid="uid://bwy7rnh47bj33" path="res://scenes/editor/editor.tscn" id="3_h2yge"]
+[ext_resource type="PackedScene" uid="uid://bvr536ueomc0d" path="res://scenes/chat/chat.tscn" id="4_1bvp3"]
 
 [node name="main" type="Control" unique_id=1195358671]
 layout_mode = 3

@@ -7,7 +7,7 @@ signal mission_updated
 enum TaskType { COMMAND, OUTPUT, VFS_STATE, FILE_CONTENT }
 
 # --- STATE ---
-var current_day : int = 0 # 0 = Day 1, 1 = Day 2, 2 = Day 3
+var current_day : int = 2 # 0 = Day 1, 1 = Day 2, 2 = Day 3
 var current_mission_id : int = 0
 
 # References assigned by the terminal/VFS at runtime via their _ready() functions
@@ -22,14 +22,13 @@ var days = [
 		{"sender": "Dr. Aris", "text": "She was paranoid, always hiding data in plain sight. Check for hidden entries before we wipe the drive.", "objective": "Run 'ls -a'", "type": TaskType.COMMAND, "value": "ls -a"},
 		{"sender": "Dr. Aris", "text": "A .journal file? Highly unprofessional. See what she was rambling about so I can close this ticket.", "objective": "Cat the .journal file", "type": TaskType.OUTPUT, "value": "something is wrong with the sensor array"},
 		{"sender": "Dr. Aris", "text": "The sensor array is fine. She was overstressed. Create a [color=#50fa7b]recovery[/color] directory to dump her 'evidence'.", "objective": "Run 'mkdir recovery'", "type": TaskType.VFS_STATE, "value": "/home/jesse/recovery"},
-		{"sender": "SYSTEM", "text": "[ALERT] Unauthorized file movement: readme.txt shifted to recovery partition.", "objective": "Move readme.txt to recovery/", "type": TaskType.VFS_STATE, "value": "/home/jesse/recovery/readme.txt"},
-		{"sender": "Dr. Vance", "text": "Jesse... if you're reading this, they're watching the root level. Go deeper into the [color=#f1fa8c]recovery[/color] folder. Don't let Aris see.", "objective": "Run 'cd recovery'", "type": TaskType.OUTPUT, "value": "/home/jesse/recovery"},
-		{"sender": "Dr. Vance", "text": "The biomass isn't just carbon. It's building something. Search the logs for [color=#ffb86c]silicon-based[/color] signatures.", "objective": "Run 'grep silicon readme.txt'", "type": TaskType.OUTPUT, "value": "silicon-based"},
-		{"sender": "Dr. Aris", "text": "Stop poking around, Wood. You're here to assist, not investigate. Sign the 'Authorized Access' log in that readme.", "objective": "Edit readme.txt with nano", "type": TaskType.COMMAND, "value": "nano readme.txt"},
+		{"sender": "SYSTEM", "text": "[ALERT] Unauthorized file movement: readme.md shifted to recovery partition.", "objective": "Move readme.md to recovery/", "type": TaskType.VFS_STATE, "value": "/home/jesse/recovery/readme.md"},
+		{"sender": "Dr. Vance", "text": "Jesse... if you're reading this, they're watching the root level. Go deeper into the [color=#f1fa8c]recovery[/color] folder. Don't let Aris see.", "objective": "Run 'cd recovery' then type 'pwd'", "type": TaskType.OUTPUT, "value": "/home/jesse/recovery"},
+		{"sender": "Dr. Vance", "text": "The biomass isn't just carbon. It's building something. Search the logs for [color=#ffb86c]silicon-based[/color] signatures.", "objective": "Run 'grep silicon readme.md'", "type": TaskType.OUTPUT, "value": "silicon-based"},
+		{"sender": "Dr. Aris", "text": "Stop poking around, Wood. You're here to assist, not investigate. Sign the 'Authorized Access' log in that readme.", "objective": "Edit readme.md with nano", "type": TaskType.COMMAND, "value": "nano readme.md"},
 		{"sender": "Dr. Vance", "text": "Aris is deleting keys. I've cached one. Copy the [color=#f1fa8c].secret[/color] file to [color=#f1fa8c]tmp[/color] before it's purged.", "objective": "Run 'cp ../.secret /tmp/.secret'", "type": TaskType.VFS_STATE, "value": "/tmp/.secret"},
 		{"sender": "Dr. Aris", "text": "That's enough. Delete that leftover .secret file and go home.", "objective": "Run 'rm .secret'", "type": TaskType.COMMAND, "value": "rm .secret"}
 	],
-	
 	# DAY 2: The Logic Bomb
 	[
 		{"sender": "SYSTEM", "text": "[KERNEL] Critical Error: /recovery partition scrubbed at 03:00 NZDT. List home to verify damage.", "objective": "Run 'ls -l'", "type": TaskType.COMMAND, "value": "ls -l"},
@@ -86,7 +85,6 @@ func check_mission_progress(type: TaskType, input_value: String):
 					success = true
 		
 		TaskType.FILE_CONTENT:
-			# Only check 'file' and 'value' if we are actually looking at content
 			var target_file = mission.get("file", "")
 			var required_val = mission.get("value", "")
 			
@@ -101,13 +99,38 @@ func check_mission_progress(type: TaskType, input_value: String):
 func _advance():
 	current_mission_id += 1
 	
-	# Handle day transitions
+	# Check if the current day's missions are finished
 	if current_mission_id >= days[current_day].size():
-		current_day += 1
-		current_mission_id = 0
-		if vfs_node:
-			vfs_node.setup_day(current_day)
+		# Check if there are more days left in the mission data
+		if current_day + 1 < days.size():
+			current_day += 1
+			current_mission_id = 0
+			_trigger_reboot_sequence()
+		else:
+			# This is the end of the last day!
+			# We increment current_day one last time so chat.gd detects the end
+			current_day += 1 
+			print("GAME COMPLETE")
 	
-	# IMPORTANT: Emit the signal so your UI knows to update!
 	mission_updated.emit()
-	print("Advanced to Mission ID: ", current_mission_id, " on Day: ", current_day)
+	print("Advanced to Day: ", current_day, " Mission: ", current_mission_id)
+	
+func _trigger_reboot_sequence():
+	# 1. Reset the VFS logic behind the scenes
+	if vfs_node:
+		vfs_node.reset_vfs()
+		vfs_node.setup_day(current_day)
+	
+	# 2. Instantiate and show the Boot Screen scene
+	# Note: Path assumes your res://scenes/boot/ structure
+	var boot_scene = load("res://scenes/boot/boot_screen.tscn")
+	if boot_scene:
+		var boot_instance = boot_scene.instantiate()
+		
+		# Assign the terminal reference so it can be reactivated
+		if terminal:
+			boot_instance.terminal_node = terminal
+			
+		get_tree().root.add_child(boot_instance)
+	else:
+		push_error("MissionManager: Boot screen scene not found at res://scenes/boot/boot_screen.tscn")

@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://bak8xtydxjinh"]
 
-[ext_resource type="Script" uid="uid://d348ckbcexo0m" path="res://rich_text_label.gd" id="1_7d6gb"]
-[ext_resource type="Script" uid="uid://08cknfj5d6po" path="res://terminal.gd" id="1_b5qft"]
-[ext_resource type="Script" uid="uid://dgvsc6jjtbg84" path="res://line_edit.gd" id="1_sxuvd"]
+[ext_resource type="Script" uid="uid://d348ckbcexo0m" path="res://scenes/terminal/rich_text_label.gd" id="1_7d6gb"]
+[ext_resource type="Script" uid="uid://08cknfj5d6po" path="res://scenes/terminal/terminal.gd" id="1_b5qft"]
+[ext_resource type="Script" uid="uid://dgvsc6jjtbg84" path="res://scenes/terminal/line_edit.gd" id="1_sxuvd"]
 
 [node name="Terminal" type="PanelContainer" unique_id=130733384]
 custom_minimum_size = Vector2(600, 0)
@@ -20,6 +20,7 @@ layout_mode = 2
 layout_mode = 2
 size_flags_vertical = 3
 follow_focus = true
+horizontal_scroll_mode = 0
 vertical_scroll_mode = 2
 
 [node name="RichTextLabel" type="RichTextLabel" parent="VBoxContainer/ScrollContainer" unique_id=71304259]
@@ -46,5 +47,6 @@ text = "jesse@OS:~$"
 unique_name_in_owner = true
 custom_minimum_size = Vector2(500, 30)
 layout_mode = 2
+size_flags_horizontal = 3
 caret_blink = true
 script = ExtResource("1_sxuvd")

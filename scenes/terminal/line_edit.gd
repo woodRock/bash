@@ -8,7 +8,7 @@ var output_log: RichTextLabel
 var scroll_v: ScrollContainer
 var editor: Control 
 var VFS: Node
-@onready var VFS_scene: PackedScene = preload("res://virtual_file_system.tscn")
+@onready var VFS_scene: PackedScene = preload("res://core/virtual_file_system.tscn")
 
 # --- KERNEL STATE ---
 var focus_loop_enabled = false
@@ -40,6 +40,10 @@ func _ready() -> void:
 	
 	text_submitted.connect(_on_command_submitted)
 	get_viewport().gui_focus_changed.connect(_on_focus_changed)
+	
+	# Initial scale sync
+	_apply_font_size(GlobalSettings.font_size)
+	GlobalSettings.setting_changed.connect(func(k, v): if k == "font_size": _apply_font_size(v))
 	
 	await get_tree().process_frame
 	await get_tree().create_timer(boot_screen_timer).timeout 
@@ -86,24 +90,13 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.ctrl_pressed:
 			match event.keycode:
-				KEY_A:
-					caret_column = 0
-					get_viewport().set_input_as_handled()
-				KEY_E:
-					caret_column = text.length()
-					get_viewport().set_input_as_handled()
-				KEY_L:
-					if output_log: output_log.clear()
-					get_viewport().set_input_as_handled()
-				KEY_U:
-					text = ""
-					get_viewport().set_input_as_handled()
-				KEY_EQUAL:
-					_adjust_font_size(1)
-					get_viewport().set_input_as_handled()
-				KEY_MINUS:
-					_adjust_font_size(-1)
-					get_viewport().set_input_as_handled()
+				KEY_A: caret_column = 0
+				KEY_E: caret_column = text.length()
+				KEY_L: if output_log: output_log.clear()
+				KEY_U: text = ""
+				KEY_EQUAL: GlobalSettings.update_font_size(1)
+				KEY_MINUS: GlobalSettings.update_font_size(-1)
+			get_viewport().set_input_as_handled()
 
 		match event.keycode:
 			KEY_TAB:
@@ -116,22 +109,8 @@ func _gui_input(event: InputEvent) -> void:
 				_handle_history(-1)
 				get_viewport().set_input_as_handled()
 
-func _adjust_font_size(delta: int):
-	var current_size = get_theme_font_size("font_size")
-	var new_size = clampi(current_size + (delta * 2), 8, 72)
+func _apply_font_size(new_size: int):
 	add_theme_font_size_override("font_size", new_size)
-	
-	if output_log:
-		output_log.add_theme_font_size_override("normal_font_size", new_size)
-		output_log.add_theme_font_size_override("bold_font_size", new_size)
-		output_log.add_theme_font_size_override("mono_font_size", new_size)
-	
-	if editor:
-		var text_node = editor.find_child("*Edit*", true, false)
-		if text_node:
-			text_node.add_theme_font_size_override("font_size", new_size)
-		else:
-			editor.add_theme_font_size_override("font_size", new_size)
 
 func _handle_history(direction: int):
 	if cmd_history.is_empty(): return
@@ -437,9 +416,11 @@ func execute_syscall(args: Array) -> String:
 	match cmd:
 		"ls":
 			var show_hidden = false
+			var long_format = false
 			var target = VFS.current_path
 			for i in range(1, args.size()):
 				if args[i] == "-a": show_hidden = true
+				elif args[i] == "-l": long_format = true
 				else: target = VFS.resolve_path(args[i])
 			
 			if not VFS.files.has(target): return "ls: cannot access '" + target + "': No such directory"
@@ -450,11 +431,18 @@ func execute_syscall(args: Array) -> String:
 					if not "/" in rel:
 						if not show_hidden and rel.begins_with("."): continue
 						var data = VFS.files[p]
+						var display_text = ""
+						if long_format:
+							var type_char = "d" if data.type == "dir" else "-"
+							var exec_char = "x" if data.get("executable", false) else "-"
+							display_text = type_char + "rw-rw-" + exec_char + " jesse_wood staff 1024 "
+						
 						var col = "#ffffff"
 						if data.type == "dir": col = "#5dade2"
 						elif data.get("executable", false): col = "#50fa7b"
-						out.append("[color=" + col + "]" + rel + "[/color]")
-			return "  ".join(out)
+						display_text += "[color=" + col + "]" + rel + "[/color]"
+						out.append(display_text)
+			return "\n".join(out) if long_format else "  ".join(out)
 		"mkdir":
 			if args.size() < 2: return "mkdir: missing operand"
 			VFS.create_file(VFS.resolve_path(args[1]), "", "dir")

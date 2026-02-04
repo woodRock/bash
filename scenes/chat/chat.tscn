@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bvr536ueomc0d"]
 
-[ext_resource type="Script" uid="uid://b83vy08k520s2" path="res://chat.gd" id="1_dg5i7"]
+[ext_resource type="Script" uid="uid://b83vy08k520s2" path="res://scenes/chat/chat.gd" id="1_dg5i7"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dg5i7"]
 
@@ -24,6 +24,7 @@ size_flags_vertical = 0
 layout_mode = 0
 offset_right = 40.0
 offset_bottom = 23.0
+theme_override_font_sizes/font_size = 16
 text = "COMMUNICATIONS"
 
 [node name="ScrollContainer" type="ScrollContainer" parent="VBoxContainer" unique_id=638585082]
