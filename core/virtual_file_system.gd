@@ -7,6 +7,8 @@ func _init() -> void:
 	reset_vfs()
 
 func reset_vfs():
+	# Start in the home directory.
+	current_path = "/home/jesse"
 	files = {
 		"/": {"type": "dir", "executable": true, "content": ""},
 		"/bin": {"type": "dir", "executable": true, "content": ""},

@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://b83vy08k520s2" path="res://scenes/chat/chat.gd" id="1_dg5i7"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dg5i7"]
+bg_color = Color(0.019607844, 0.019607844, 0.03137255, 1)
 
 [node name="Chat" type="PanelContainer" unique_id=1325120284]
 anchors_preset = 15

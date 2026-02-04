@@ -5,8 +5,9 @@ signal editor_closed
 signal file_saved(path, content)
 
 # --- NODES ---
+# Ensure your scene tree nodes match these names exactly!
 @onready var file_label = $VBoxContainer/FileNameLabel
-@onready var code_input = $VBoxContainer/CodeInput
+@onready var code_input = $VBoxContainer/CodeInput  # Use CodeEdit node for syntax highlighting
 @onready var help_label = $VBoxContainer/HelpLabel
 
 # --- STATE ---
@@ -17,6 +18,17 @@ func _ready() -> void:
 	# Connect to global reactive settings
 	GlobalSettings.setting_changed.connect(_on_setting_changed)
 	_apply_font_size(GlobalSettings.font_size)
+	
+	# Apply Cyberpunk Styling
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color("#1e1e2e")
+	style.border_width_left = 2
+	style.border_width_right = 2
+	style.border_width_top = 2
+	style.border_width_bottom = 2
+	style.border_color = Color("#bd93f9")
+	add_theme_stylebox_override("panel", style)
+	
 	hide() 
 
 # --- HIGHLIGHTER FACTORY ---
@@ -30,72 +42,70 @@ func apply_highlighter_for_file(path: String):
 		"md", "txt":
 			code_input.syntax_highlighter = get_markdown_highlighter()
 		_:
-			# Default to no highlighting for unknown types
 			code_input.syntax_highlighter = null
 
 func get_bash_highlighter() -> CodeHighlighter:
 	var h = CodeHighlighter.new()
-	# Dracula Palette Colors
 	h.symbol_color = Color("#5dade2")
 	h.number_color = Color("#f39c12")
 	h.function_color = Color("#f4d03f")
 	h.member_variable_color = Color("#a2d9ce")
 
-	var keywords = ["if", "then", "else", "fi", "for", "while", "do", "done", "exit", "return"]
+	var keywords = ["if", "then", "else", "fi", "for", "while", "do", "done", "exit", "return", "export"]
 	for word in keywords: h.add_keyword_color(word, Color("#ff79c6"))
 
-	var commands = ["ls", "cd", "cat", "touch", "nano", "pwd", "grep", "sudo", "chmod", "sleep"]
+	var commands = ["ls", "cd", "cat", "touch", "nano", "pwd", "grep", "sudo", "chmod", "sleep", "mv", "cp", "rm", "reboot"]
 	for cmd in commands: h.add_keyword_color(cmd, Color("#50fa7b"))
 
-	# Comments and Strings
 	h.add_color_region("#", "", Color("#6272a4"), true)
 	h.add_color_region('"', '"', Color("#f1fa8c"), false)
 	h.add_color_region("'", "'", Color("#f1fa8c"), false)
-	
-	# Shell variable expansion highlighting
 	h.add_color_region("${", "}", Color("#8be9fd"), false)  
 	return h
 
 func get_markdown_highlighter() -> CodeHighlighter:
 	var h = CodeHighlighter.new()
-	
-	# Dracula Markdown Palette
-	h.symbol_color = Color("#ff79c6") # Pink syntax markers
-	
-	# Headers
+	h.symbol_color = Color("#ff79c6")
 	h.add_color_region("# ", "", Color("#50fa7b"), true) 
 	h.add_color_region("## ", "", Color("#50fa7b"), true)
 	h.add_color_region("### ", "", Color("#50fa7b"), true)
-	
-	# Inline Code and Blocks
 	h.add_color_region("`", "`", Color("#f1fa8c"), false)
-	h.add_color_region("```", "```", Color("#f1fa8c"), false)
-	
-	# Emphasis (Bold/Italic)
-	h.add_color_region("**", "**", Color("#ffb86c"), false) 
-	h.add_color_region("*", "*", Color("#bd93f9"), false)   
-	
-	# Lists and Blockquotes
 	h.add_color_region("- ", "", Color("#8be9fd"), true)
 	h.add_color_region("> ", "", Color("#6272a4"), true)
-	
 	return h
 
 # --- EDITOR CORE ---
 
-func open_file(path: String, vfs):
-	vfs_reference = vfs
+func open_file(path: String, vfs = null):
+	# 1. Show immediately
+	show()
+		
+	# 2. Resolve VFS
+	if vfs:
+		vfs_reference = vfs
+	elif MissionManager.vfs_node:
+		vfs_reference = MissionManager.vfs_node
+	else:
+		push_error("EDITOR ERROR: No VFS provided and MissionManager.vfs_node is null!")
+		code_input.text = "# ERROR: Virtual File System not connected."
+		return
+
 	current_file_path = path
-	file_label.text = " EDITING: " + path
+	file_label.text = " NANO 2.4  File: " + path
 	
-	# Determine highlighting logic before showing content
+	# 3. Setup Highlighter
 	apply_highlighter_for_file(path)
 	
+	# 4. Load Content
 	if vfs_reference.files.has(path):
 		code_input.text = vfs_reference.files[path].get("content", "")
+	else:
+		# New file
+		code_input.text = ""
 	
-	show()
 	code_input.grab_focus()
+	# Move caret to the end of the file
+	code_input.set_caret_column(code_input.text.length())
 
 func _input(event):
 	if not is_visible_in_tree(): return
@@ -112,15 +122,23 @@ func _input(event):
 func save_file():
 	if vfs_reference and current_file_path != "":
 		var new_content = code_input.text
-		vfs_reference.files[current_file_path]["content"] = new_content
 		
-		# Notify MissionManager to check content tasks
+		# LOGIC FIX: Create file if it doesn't exist (like 'touch' + 'nano')
+		if vfs_reference.files.has(current_file_path):
+			vfs_reference.files[current_file_path]["content"] = new_content
+		else:
+			vfs_reference.create_file(current_file_path, new_content, "file")
+		
+		# Notify MissionManager so objectives (like "Sign the Waiver") complete
+		MissionManager.check_mission_progress(MissionManager.TaskType.FILE_CONTENT, current_file_path)
+		
 		file_saved.emit(current_file_path, new_content)
 		
-		help_label.text = "FILE SAVED!"
-		get_tree().create_timer(1.0).timeout.connect(func(): 
-			help_label.text = "^O Save | ^X Exit"
-		)
+		# UI Feedback
+		var original = help_label.text
+		help_label.text = "[ WROTE " + str(new_content.length()) + " LINES ]"
+		await get_tree().create_timer(1.0).timeout
+		help_label.text = original
 
 func exit_editor():
 	hide()
@@ -133,11 +151,6 @@ func _on_setting_changed(key: String, value):
 		_apply_font_size(value)
 
 func _apply_font_size(new_size: int):
-	# Update the main text input area
 	code_input.add_theme_font_size_override("font_size", new_size)
-	
-	# Update secondary UI labels
 	file_label.add_theme_font_size_override("font_size", new_size)
-	
-	# Keep help text slightly smaller but legible
 	help_label.add_theme_font_size_override("font_size", clampi(new_size - 4, 8, 72))

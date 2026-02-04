@@ -24,7 +24,6 @@ horizontal_scroll_mode = 0
 vertical_scroll_mode = 2
 
 [node name="RichTextLabel" type="RichTextLabel" parent="VBoxContainer/ScrollContainer" unique_id=71304259]
-unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 200)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -37,6 +36,7 @@ scroll_following = true
 script = ExtResource("1_7d6gb")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=632435318]
+custom_minimum_size = Vector2(0, 50)
 layout_mode = 2
 
 [node name="Label" type="Label" parent="VBoxContainer/HBoxContainer" unique_id=582491768]
@@ -44,7 +44,6 @@ layout_mode = 2
 text = "jesse@OS:~$"
 
 [node name="LineEdit" type="LineEdit" parent="VBoxContainer/HBoxContainer" unique_id=1784161423]
-unique_name_in_owner = true
 custom_minimum_size = Vector2(500, 30)
 layout_mode = 2
 size_flags_horizontal = 3

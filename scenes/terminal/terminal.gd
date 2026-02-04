@@ -1,6 +1,6 @@
 extends PanelContainer
 
-@onready var input_line = %LineEdit 
+@onready var input_line = $VBoxContainer/HBoxContainer/LineEdit
 
 func _ready() -> void:
 	GlobalSettings.setting_changed.connect(_on_setting_changed)
