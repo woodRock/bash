@@ -73,10 +73,8 @@ func _on_command_submitted(new_text: String) -> void:
 	else:
 		append_to_log("> " + line)
 		
-	# 1. Run the command first
 	var result = await process_input_line(line)
 	
-	# 2. THEN check progress (so touch/mkdir files actually exist now)
 	MissionManager.check_mission_progress(MissionManager.TaskType.COMMAND, line)
 	MissionManager.check_mission_progress(MissionManager.TaskType.VFS_STATE, line)
 	MissionManager.check_mission_progress(MissionManager.TaskType.OUTPUT, result)
@@ -86,6 +84,27 @@ func _on_command_submitted(new_text: String) -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
+		if event.ctrl_pressed:
+			match event.keycode:
+				KEY_A:
+					caret_column = 0
+					get_viewport().set_input_as_handled()
+				KEY_E:
+					caret_column = text.length()
+					get_viewport().set_input_as_handled()
+				KEY_L:
+					if output_log: output_log.clear()
+					get_viewport().set_input_as_handled()
+				KEY_U:
+					text = ""
+					get_viewport().set_input_as_handled()
+				KEY_EQUAL:
+					_adjust_font_size(1)
+					get_viewport().set_input_as_handled()
+				KEY_MINUS:
+					_adjust_font_size(-1)
+					get_viewport().set_input_as_handled()
+
 		match event.keycode:
 			KEY_TAB:
 				_handle_autocomplete()
@@ -96,6 +115,23 @@ func _gui_input(event: InputEvent) -> void:
 			KEY_DOWN:
 				_handle_history(-1)
 				get_viewport().set_input_as_handled()
+
+func _adjust_font_size(delta: int):
+	var current_size = get_theme_font_size("font_size")
+	var new_size = clampi(current_size + (delta * 2), 8, 72)
+	add_theme_font_size_override("font_size", new_size)
+	
+	if output_log:
+		output_log.add_theme_font_size_override("normal_font_size", new_size)
+		output_log.add_theme_font_size_override("bold_font_size", new_size)
+		output_log.add_theme_font_size_override("mono_font_size", new_size)
+	
+	if editor:
+		var text_node = editor.find_child("*Edit*", true, false)
+		if text_node:
+			text_node.add_theme_font_size_override("font_size", new_size)
+		else:
+			editor.add_theme_font_size_override("font_size", new_size)
 
 func _handle_history(direction: int):
 	if cmd_history.is_empty(): return
@@ -331,14 +367,12 @@ func evaluate_condition(cond: String) -> bool:
 func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 	var proc = cmd_text.strip_edges()
 	
-	# Detect Redirection
 	var redirect_to = ""
 	if " > " in proc:
 		var r_parts = proc.split(" > ", true, 1)
 		proc = r_parts[0].strip_edges()
 		redirect_to = r_parts[1].strip_edges()
 
-	# Command Substitution
 	var cmd_sub_regex = RegEx.new()
 	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
 	var cmd_matches = cmd_sub_regex.search_all(proc)
@@ -349,7 +383,6 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
 		proc = proc.insert(m.get_start(), sub_result.strip_edges())
 	
-	# Variable Expansion
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
 	var matches = var_regex.search_all(proc)
 	for i in range(matches.size() - 1, -1, -1):
@@ -403,14 +436,19 @@ func execute_syscall(args: Array) -> String:
 	var cmd = args[0]
 	match cmd:
 		"ls":
+			var show_hidden = false
 			var target = VFS.current_path
-			if args.size() > 1: target = VFS.resolve_path(args[1])
-			if not VFS.files.has(target): return "ls: cannot access '" + args[1] + "': No such directory"
+			for i in range(1, args.size()):
+				if args[i] == "-a": show_hidden = true
+				else: target = VFS.resolve_path(args[i])
+			
+			if not VFS.files.has(target): return "ls: cannot access '" + target + "': No such directory"
 			var out = []
 			for p in VFS.files.keys():
 				if p.begins_with(target) and p != target:
 					var rel = p.trim_prefix(target).trim_prefix("/")
 					if not "/" in rel:
+						if not show_hidden and rel.begins_with("."): continue
 						var data = VFS.files[p]
 						var col = "#ffffff"
 						if data.type == "dir": col = "#5dade2"
@@ -440,19 +478,10 @@ func execute_syscall(args: Array) -> String:
 			if args.size() < 3: return "mv: missing destination"
 			var s_path = VFS.resolve_path(args[1])
 			var d_path = VFS.resolve_path(args[2])
-			
-			if not VFS.files.has(s_path):
-				return "mv: cannot stat '" + args[1] + "': No such file or directory"
-			
-			# If destination is an existing directory, move source INTO it
+			if not VFS.files.has(s_path): return "mv: " + args[1] + ": No such file"
 			if VFS.files.has(d_path) and VFS.files[d_path].type == "dir":
-				# Manual path join: ensures no double slashes
 				var file_name = s_path.get_file()
-				if d_path.ends_with("/"):
-					d_path = d_path + file_name
-				else:
-					d_path = d_path + "/" + file_name
-
+				d_path = d_path + ("/" if not d_path.ends_with("/") else "") + file_name
 			VFS.move_item(s_path, d_path)
 			return ""
 		"grep":
@@ -517,10 +546,10 @@ func append_to_log(msg: String) -> void:
 
 func _on_editor_saved(path: String, content: String):
 	VFS.files[path].content = content
-	MissionManager.check_mission_progress(3, path)
+	MissionManager.check_mission_progress(MissionManager.TaskType.FILE_CONTENT, path)
 
 func _on_editor_closed():
-	focus_loop_enabled = true; grab_focus(); MissionManager.check_mission_progress(3, "")
+	focus_loop_enabled = true; grab_focus(); MissionManager.check_mission_progress(MissionManager.TaskType.COMMAND, "exit_nano")
 
 func _on_focus_changed(node: Control) -> void:
 	if focus_loop_enabled and node != self and not (editor and editor.visible): 

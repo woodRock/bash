@@ -7,7 +7,7 @@ signal mission_updated
 enum TaskType { COMMAND, OUTPUT, VFS_STATE, FILE_CONTENT }
 
 # --- STATE ---
-var current_day : int = 2 # 0 = Day 1, 1 = Day 2, 2 = Day 3
+var current_day : int = 0 # 0 = Day 1, 1 = Day 2, 2 = Day 3
 var current_mission_id : int = 0
 
 # References assigned by the terminal/VFS at runtime via their _ready() functions
