@@ -126,7 +126,7 @@ func _trigger_game_complete():
 	var complete_text = "\n[center][b][color=" + success_col + "]ALL CHAPTERS COMPLETE.[/color][/b][/center]"
 	complete_text += "\n[center][color=" + dim_col + "]TERMINAL CONNECTION SEVERED[/color][/center]"
 	
-	chat_log.append_text(complete_text)
+	_animate_text_append(complete_text)
 	
 	objective_label.text = ">>> SYSTEM OFFLINE <<<"
 	objective_label.add_theme_color_override("font_color", Color(GlobalSettings.get_color("sender_system")))
