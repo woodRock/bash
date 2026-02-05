@@ -7,7 +7,7 @@ signal mission_updated
 enum TaskType { COMMAND, OUTPUT, VFS_STATE, FILE_CONTENT }
 
 # --- STATE ---
-var current_day : int = 0 
+var current_day : int = 3 
 var current_mission_id : int = 0
 
 # References assigned by the terminal/VFS at runtime via their _ready() functions
@@ -92,6 +92,32 @@ var days = [
 		
 		# Day 3 Resolution
 		{"sender": "Dr. Aris", "text": "You've dug too deep, Wood. That boat isn't tracking fish. It's tracking a biological uplink. And you just broadcasted its coordinates to the entire network. Security is on their way.\n\n[color=#ff5555]>> TERMINAL LOCKDOWN INITIATED. REBOOT TO EXIT.[/color]", "objective": "Run 'reboot'", "type": TaskType.COMMAND, "value": "reboot"}
+	],
+	
+	# ==========================================
+	# DAY 4: The Jailbreak (DICTIONARY ATTACK)
+	# Concept: Iterating over file content
+	# ==========================================
+	[
+		{"sender": "SYSTEM", "text": "[LOCKDOWN] Connection severed. Sandbox active.", "objective": "Check status", "type": TaskType.COMMAND, "value": "pwd"},
+		
+		{"sender": "Freya", "text": "Aris has rotated the encryption keys. I've intercepted a dump of 50 potential keys, but I don't know which one is active.", "objective": "List files", "type": TaskType.COMMAND, "value": "ls"},
+		
+		{"sender": "Freya", "text": "They are in [color=#f1fa8c]access_codes.txt[/color]. If you try to type them manually, the system will lock you out before you hit the tenth one. You need to automate it.", "objective": "Read the codes", "type": TaskType.COMMAND, "value": "cat access_codes.txt"},
+		
+		# THE PUZZLE:
+		# Player must realize:
+		# 1. `$(cat access_codes.txt)` turns the file content into a list of items.
+		# 2. `for i in ...` iterates that list.
+		# 3. `unlock $i` tries the key.
+		{"sender": "Vance AI", "text": "Create a script `breaker.sh`. Iterate through the file contents. Feed every single line into the `unlock` command.", "objective": "Script the solution", "type": TaskType.VFS_STATE, "value": "/sandbox/breaker.sh"},
+		
+		# We check if they put the logic inside the file.
+		{"sender": "Vance AI", "text": "Use the command substitution `$(cat ...)` to feed the loop.", "objective": "Write loop logic", "type": TaskType.FILE_CONTENT, "file": "/sandbox/breaker.sh", "value": "$(cat access_codes.txt)"},
+		
+		{"sender": "SYSTEM", "text": "Awaiting handshake...", "objective": "Run the script", "type": TaskType.OUTPUT, "value": "ACCESS GRANTED"},
+		
+		{"sender": "Freya", "text": "We're in. That was fast. I'm securing the connection now.\n\n[color=#50fa7b]>> DEMO COMPLETE.[/color]", "objective": "End", "type": TaskType.COMMAND, "value": "exit"}
 	],
 ]
 

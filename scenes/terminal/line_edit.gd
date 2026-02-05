@@ -229,7 +229,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"reboot":
 			clear_output()
 			reboot_requested.emit()
-			final_result = "System rebooting..."
+			final_result = ""
 		"nano":
 			if args.size() > 0:
 				var path = _resolve(args[0])
@@ -254,7 +254,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 			else:
 				final_result = "What manual page do you want? (e.g., 'man grep')"
 		# ADDED 'tree' to syscall list
-		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree": 
+		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree", "unlock": 
 			final_result = await execute_syscall(tokens)
 		"cat": 
 			final_result = execute_cat(args)
@@ -384,6 +384,13 @@ func execute_syscall(args: Array) -> String:
 					if pat in l.to_lower(): ms.append(l)
 				return "\n".join(ms)
 			return "grep: " + args[2] + ": No such file"
+		"unlock":
+			if args.size() < 2: return "Usage: unlock [key]"
+			# Simulate checking the key
+			if args[1] == "NODE-7777-X" or args[1] == "CORRECT-KEY-777":
+				return "ACCESS GRANTED. FIREWALL DISABLED."
+			else:
+				return "Access Denied: " + args[1]
 	return ""
 
 # --- RECURSIVE TREE HELPER ---
@@ -431,8 +438,27 @@ func find_executable(cmd: String) -> String:
 	var target = VFS.resolve_path("/bin/" + cmd)
 	return target if VFS.files.has(target) else ""
 
+# --- UPDATED: execute_block now handles $(...) in headers ---
 func execute_block(lines: Array, is_silent: bool = false) -> String:
 	var header = lines[0]; var body = lines.slice(1, -1); var output = []
+	
+	# --- FIX: EXPAND COMMAND SUBSTITUTION $(...) IN HEADER ---
+	# We must do this BEFORE processing variables or splitting the string.
+	var cmd_sub_regex = RegEx.new()
+	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
+	var cmd_matches = cmd_sub_regex.search_all(header)
+	
+	# Iterate backwards to keep indices valid during replacement
+	for i in range(cmd_matches.size() - 1, -1, -1):
+		var m = cmd_matches[i]
+		var sub_cmd = m.get_string(1)
+		# Recursively run the inner command
+		var sub_result = await _run_atomic_command(sub_cmd, true)
+		# CRITICAL: Replace newlines with spaces so 'for' loops see them as separate items
+		sub_result = sub_result.replace("\n", " ").strip_edges()
+		
+		header = header.erase(m.get_start(), m.get_end() - m.get_start())
+		header = header.insert(m.get_start(), sub_result)
 	
 	# Expand variables in header
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
@@ -457,6 +483,7 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 			if run or nesting_depth > 0:
 				var res = await _run_atomic_command(line, true)
 				if run and res != "": output.append(res)
+				
 	elif header.begins_with("for"):
 		var words_header = header.split(" ", false)
 		if words_header.size() >= 2:
@@ -471,6 +498,7 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 					if nesting_depth == 0 and (stripped in ["do", "done", ""]): continue
 					var res = await _run_atomic_command(line, true)
 					if res != "": output.append(res)
+					
 	if output.size() > 0: return "\n".join(output)
 	return ""
 

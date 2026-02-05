@@ -61,6 +61,38 @@ The following personnel are cleared for Project Gatekeeper terminal use. Please 
 		files["/logs/Day_03.log"] = {"type": "file", "executable": false, "content": "COORD: 41.2865S | SIGNAL: BOAT"}
 		files["/logs/Day_04.log"] = {"type": "file", "executable": false, "content": "Sanitized by Aris."}
 
+	elif day_index == 3: # Day 4: The Dictionary Attack
+		files["/sandbox"] = {"type": "dir", "executable": true, "content": ""}
+		
+		current_path = "/sandbox"
+		
+		# Generate a "Dictionary" file with 50 fake codes and 1 real one hidden inside
+		var code_list = []
+		for i in range(50):
+			code_list.append("NODE-" + str(randi() % 9000 + 1000) + "-X")
+		
+		# Inject the correct key somewhere in the middle
+		code_list[24] = "NODE-7777-X" 
+		
+		files["/sandbox/access_codes.txt"] = {
+			"type": "file", 
+			"executable": false, 
+			"content": "\n".join(code_list)
+		}
+		
+		# Hint file
+		files["/sandbox/readme.msg"] = {
+			"type": "file", 
+			"executable": false, 
+			"content": "INTERCEPTED KEY DUMP.\nTarget: Firewall Port 22.\nTask: Cycle through keys until handshake is accepted."
+		}
+		
+		files["/bin/unlock"] = {
+			"type": "file", 
+			"executable": true, 
+			"content": "syscall unlock $1"
+		}
+
 func _setup_binaries():
 	# Self-test script that runs the full test suite
 	files["/bin/test_bash.sh"] = {
