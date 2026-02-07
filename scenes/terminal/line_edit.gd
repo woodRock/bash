@@ -31,7 +31,7 @@ const MAX_RECURSION_DEPTH = 1000
 
 # --- MANUAL PAGES ---
 var manual_pages = {
-	"ls": "Usage: ls [flags] [directory]\nLists directory contents.\nFlags:\n  -a  Show hidden files\n  -l  Show detailed info",
+	"ls": "Usage: ls [flags] [directory]\nLists directory contents.\nFlags:\n  -a  Show hidden files\n  -l  Show detailed info\n  (Flags can be combined, e.g., -la)",
 	"cd": "Usage: cd [path]\nChanges the current working directory.\nUse 'cd ..' to go up one level.\nUse 'cd ~' to go home.",
 	"cat": "Usage: cat [file]\nReads a file and prints its content to the screen.",
 	"grep": "Usage: grep [pattern] [file]\nSearch for a text pattern within a file.\nExample: grep 'password' server.log",
@@ -47,7 +47,12 @@ var manual_pages = {
 	"for": "Usage: for VAR in ITEM1 ITEM2; do ...; done\nLoops through a list of items.\nExample: for i in 1 2 3; do echo $i; done",
 	"tree": "Usage: tree [directory]\nDisplays a recursive visual directory structure.",
 	"ps": "Usage: ps\nSnapshot of current processes.",
-	"kill": "Usage: kill [pid]\nTerminates the process with the given PID."
+	"kill": "Usage: kill [pid]\nTerminates the process with the given PID.",
+	"sleep": "Usage: sleep [seconds]\nPauses execution for the specified time.",
+	"whoami": "Usage: whoami\nPrint the current user name.",
+	"exit": "Usage: exit\nCloses the terminal session.",
+	"man": "Usage: man [command]\nDisplays the manual entry for a command.",
+	"sh": "Usage: sh [file]\nExecutes a shell script."
 }
 
 func _ready() -> void:
@@ -97,7 +102,8 @@ func _on_command_submitted(new_text: String) -> void:
 		
 	var result = await process_input_line(line)
 	
-	MissionManager.check_mission_progress(MissionManager.TaskType.COMMAND, line)
+	# Pass 'result' to check_mission_progress to catch errors (like 'rm' failing)
+	MissionManager.check_mission_progress(MissionManager.TaskType.COMMAND, line, result)
 	MissionManager.check_mission_progress(MissionManager.TaskType.VFS_STATE, line)
 	MissionManager.check_mission_progress(MissionManager.TaskType.OUTPUT, result)
 	
@@ -108,7 +114,6 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 	var clean_line = line.strip_edges()
 	if clean_line == "" or clean_line.begins_with("#"): return ""
 
-	# ADDED: Support for semicolon ';' as a command separator
 	var regex = RegEx.new(); regex.compile("(&&|\\|\\||;)")
 	var matches = regex.search_all(clean_line)
 	var segments = []; var operators = []; var last_index = 0
@@ -126,7 +131,6 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 			var op = operators[i-1]
 			if (op == "&&" and env_vars["?"] != "0") or (op == "||" and env_vars["?"] == "0"):
 				continue
-			# If op is ';', we just proceed correctly.
 		var result = await _run_atomic_command(cmd_segment, is_silent)
 		if result != "": all_results.append(result)
 	
@@ -136,8 +140,6 @@ func _run_atomic_command(cmd_text: String, is_silent: bool) -> String:
 	var clean_cmd = cmd_text.strip_edges()
 	if clean_cmd == "": return ""
 	
-	# --- STACK OVERFLOW FIX ---
-	# Every 10 recursion levels, pause for 1 frame to reset Godot's internal stack.
 	if recursion_depth > 0 and recursion_depth % 10 == 0:
 		await get_tree().process_frame
 	
@@ -183,10 +185,17 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 	var proc = cmd_text.strip_edges()
 	
 	var redirect_to = ""
-	if " > " in proc:
+	var append_mode = false
+	if " >> " in proc:
+		var r_parts = proc.split(" >> ", true, 1)
+		proc = r_parts[0].strip_edges()
+		redirect_to = r_parts[1].strip_edges()
+		append_mode = true
+	elif " > " in proc:
 		var r_parts = proc.split(" > ", true, 1)
 		proc = r_parts[0].strip_edges()
 		redirect_to = r_parts[1].strip_edges()
+		append_mode = false
 
 	var cmd_sub_regex = RegEx.new()
 	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
@@ -195,10 +204,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		var m = cmd_matches[i]
 		var sub_cmd = m.get_string(1)
 		var sub_result = await _run_atomic_command(sub_cmd, true)
-		
-		# FIX: Strip colors so logic works
 		sub_result = strip_bbcode(sub_result)
-		
 		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
 		proc = proc.insert(m.get_start(), sub_result.strip_edges())
 	
@@ -223,21 +229,19 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 	var final_result = ""
 	
 	match cmd:
-		"echo": final_result = " ".join(args)
+		"echo": 
+			# Check if this is arithmetic (simple addition for test counter)
+			if args.size() == 3 and args[1] == "+":
+				var a = int(args[0])
+				var b = int(args[2])
+				final_result = str(a + b)
+			else:
+				final_result = " ".join(args)
 		"pwd": final_result = VFS.current_path
-		"clear": 
-			clear_output()
-			final_result = ""
-		"export": 
-			handle_export(args)
-			final_result = ""
-		"chmod": 
-			execute_chmod(args)
-			final_result = ""
-		"reboot":
-			clear_output()
-			reboot_requested.emit()
-			final_result = "System rebooting..."
+		"clear": clear_output(); final_result = ""
+		"export": handle_export(args); final_result = ""
+		"chmod": execute_chmod(args); final_result = ""
+		"reboot": clear_output(); reboot_requested.emit(); final_result = "System rebooting..."
 		"nano":
 			if args.size() > 0:
 				var path = _resolve(args[0])
@@ -245,12 +249,11 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 				final_result = ""
 			else:
 				final_result = "nano: missing filename"
-		# --- DOCUMENTATION COMMANDS ---
 		"help":
 			final_result = "AVAILABLE COMMANDS:\n"
 			final_result += "[color=#bd93f9]filesystem:[/color] ls, cd, pwd, mkdir, touch, rm, cp, mv, tree\n"
-			final_result += "[color=#bd93f9]system:[/color]     cat, grep, chmod, export, reboot, ps, kill\n"
-			final_result += "[color=#bd93f9]tools:[/color]      nano, sh\n\n"
+			final_result += "[color=#bd93f9]system:[/color]     cat, grep, chmod, export, reboot, ps, kill, whoami, exit\n"
+			final_result += "[color=#bd93f9]tools:[/color]      nano, sh, sleep\n\n"
 			final_result += "Type 'man [command]' for detailed usage."
 		"man":
 			if args.size() > 0:
@@ -261,15 +264,22 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 					final_result = "No manual entry for " + topic
 			else:
 				final_result = "What manual page do you want? (e.g., 'man grep')"
-		# ADDED: tree, unlock, ps, kill
-		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree", "unlock", "ps", "kill": 
+		"sleep":
+			if args.size() > 0:
+				var time = float(args[0])
+				await get_tree().create_timer(time).timeout
+				final_result = ""
+			else:
+				final_result = "usage: sleep [seconds]"
+		"exit":
+			get_tree().quit()
+			final_result = ""
+
+		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree", "unlock", "ps", "kill", "whoami": 
 			final_result = await execute_syscall(tokens)
-		"cat": 
-			final_result = execute_cat(args)
-		"cd": 
-			final_result = execute_cd(args)
-		"sh": 
-			final_result = await execute_sh(args, is_silent)
+		"cat": final_result = execute_cat(args)
+		"cd": final_result = execute_cd(args)
+		"sh": final_result = await execute_sh(args, is_silent)
 		_:
 			var path = find_executable(cmd)
 			if path != "": final_result = await execute_sh([path] + args, is_silent)
@@ -277,7 +287,15 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 
 	if redirect_to != "":
 		var p = _resolve(redirect_to)
-		VFS.create_file(p, final_result, "file")
+		if append_mode:
+			# Append to existing file
+			var existing = ""
+			if VFS.files.has(p):
+				existing = VFS.files[p].content
+			VFS.create_file(p, existing + final_result + "\n", "file")
+		else:
+			# Overwrite file
+			VFS.create_file(p, final_result, "file")
 		return ""
 	return final_result
 
@@ -286,26 +304,25 @@ func execute_sh(args: Array, is_silent: bool = false) -> String:
 	var p = _resolve(args[0])
 	if VFS.files.has(p):
 		if not VFS.files[p].get("executable", false): return "bash: " + args[0] + ": Permission denied"
-		
-		# Context Switching with Safe Recursion Reset
 		var saved_nesting = nesting_depth
 		var saved_buffer = block_buffer.duplicate()
 		var saved_recursion = recursion_depth
-		
 		nesting_depth = 0
 		block_buffer.clear()
 		recursion_depth = 0 
-		
 		var outs = []
 		var lines = VFS.files[p].content.split("\n", false)
 		for line in lines:
 			var res = await process_input_line(line.strip_edges(), is_silent)
 			if res != "": outs.append(res)
-		
 		nesting_depth = saved_nesting
 		block_buffer = saved_buffer
 		recursion_depth = saved_recursion
 		
+		# Prevent double printing if running interactively (e.g., via run_tests)
+		if not is_silent:
+			return ""
+			
 		return "\n".join(outs)
 	return "sh: " + args[0] + ": not found"
 
@@ -327,25 +344,62 @@ func execute_syscall(args: Array) -> String:
 	match cmd:
 		"ls":
 			var show_hidden = false; var long_format = false; var target = VFS.current_path
+			
+			# Flag Parsing
 			for i in range(1, args.size()):
-				if args[i] == "-a": show_hidden = true
-				elif args[i] == "-l": long_format = true
-				else: target = _resolve(args[i])
+				if args[i].begins_with("-"):
+					for char in args[i].substr(1):
+						if char == "a": show_hidden = true
+						elif char == "l": long_format = true
+				else:
+					target = _resolve(args[i])
+					break
+			
 			if not VFS.files.has(target): return "ls: cannot access '" + target + "': No such directory"
 			var out = []
+			
+			# If showing details, add total block count (fake)
+			if long_format: out.append("total " + str(VFS.files.size() * 4))
+
 			for p in VFS.files.keys():
 				if p.begins_with(target) and p != target:
 					var rel = p.trim_prefix(target).trim_prefix("/")
 					if not "/" in rel:
 						if not show_hidden and rel.begins_with("."): continue
 						var data = VFS.files[p]
-						var col = "#ffffff"
-						if data.type == "dir": col = "#5dade2"
-						elif data.get("executable", false): col = "#50fa7b"
-						out.append("[color=" + col + "]" + rel + "[/color]")
+						
+						# Logic for Extended Details
+						if long_format:
+							var perms = "-rw-r--r--"
+							var size = str(data.content.length())
+							var owner = "jesse"
+							var group = "staff"
+							var date = "Oct 26 09:00"
+							var col = "#ffffff"
+							
+							if data.type == "dir":
+								perms = "drwxr-xr-x"
+								size = "4096"
+								col = "#5dade2"
+							elif data.get("executable", false):
+								perms = "-rwxr-xr-x"
+								col = "#50fa7b"
+							
+							if p.begins_with("/root") or p.begins_with("/bin") or p.begins_with("/proc"):
+								owner = "root"
+								group = "root"
+
+							# Pad columns for alignment
+							out.append("%s %s %s %5s %s [color=%s]%s[/color]" % [perms, owner, group, size, date, col, rel])
+						else:
+							# Simple Format
+							var col = "#ffffff"
+							if data.type == "dir": col = "#5dade2"
+							elif data.get("executable", false): col = "#50fa7b"
+							out.append("[color=" + col + "]" + rel + "[/color]")
+							
 			return "\n".join(out) if long_format else "  ".join(out)
 		
-		# --- TREE ---
 		"tree":
 			var target = VFS.current_path
 			if args.size() > 1:
@@ -372,7 +426,10 @@ func execute_syscall(args: Array) -> String:
 		"cp":
 			if args.size() < 3: return "cp: missing destination"
 			var s = _resolve(args[1]); var d = _resolve(args[2])
-			if VFS.files.has(s): VFS.files[d] = VFS.files[s].duplicate(); return ""
+			if VFS.files.has(s): 
+				if VFS.files.has(d) and VFS.files[d].type == "dir":
+					d = d + "/" + s.get_file()
+				VFS.files[d] = VFS.files[s].duplicate(); return ""
 			return "cp: " + args[1] + ": No such file"
 		"mv":
 			if args.size() < 3: return "mv: missing destination"
@@ -390,43 +447,31 @@ func execute_syscall(args: Array) -> String:
 					if pat in l.to_lower(): ms.append(l)
 				return "\n".join(ms)
 			return "grep: " + args[2] + ": No such file"
-		
-		# --- DAY 4: UNLOCK PUZZLE ---
 		"unlock":
 			if args.size() < 2: return "Usage: unlock [key]"
 			if args[1] == "NODE-7777-X" or args[1] == "CORRECT-KEY-777":
 				return "ACCESS GRANTED. FIREWALL DISABLED."
 			else:
 				return "Access Denied: " + args[1]
-		
-		# --- DAY 5: PROCESS LIST ---
 		"ps":
 			if not VFS.files.has("/proc"): return "Error: /proc filesystem not mounted."
-			
 			var out = ["[color=#bd93f9]  PID TTY          TIME CMD[/color]"]
-			
 			for path in VFS.files.keys():
 				if path.begins_with("/proc/") and path.ends_with("/cmdline"):
 					var pid = path.get_slice("/", 2)
-					# FIX: Variable name collision fixed
 					var proc_cmd = VFS.files[path].content 
 					out.append("%5s ?        00:00:00 %s" % [pid, proc_cmd])
-					
 			return "\n".join(out)
-		
-		# --- DAY 5: KILL PROCESS ---
 		"kill":
 			if args.size() < 2: return "kill: usage: kill [pid]"
 			var pid = args[1]
 			var proc_dir = "/proc/" + pid
 			if not VFS.files.has(proc_dir):
 				return "kill: (" + pid + ") - No such process"
-			
 			var env_file = proc_dir + "/environ"
 			var env_content = ""
 			if VFS.files.has(env_file):
 				env_content = VFS.files[env_file].content
-				
 			if env_content == "MODE=HUNTER":
 				_recursive_delete(proc_dir)
 				return "[SYSTEM] Process " + pid + " terminated."
@@ -434,9 +479,60 @@ func execute_syscall(args: Array) -> String:
 				return "[KERNEL PANIC] CRITICAL PROCESS KILLED. SYSTEM HALTED."
 			else:
 				return "kill: permission denied"
+		"whoami":
+			if MissionManager.current_day == 5 and MissionManager.current_mission_id >= 8:
+				return "root"
+			return env_vars["USER"]
 	return ""
 
 # --- HELPERS ---
+
+func _handle_autocomplete():
+	var current_text = text.strip_edges()
+	if current_text == "": return
+	
+	var tokens = text.split(" ") 
+	var last_token = tokens[-1]
+	
+	var possibilities = []
+	var is_command = (tokens.size() == 1)
+	
+	if is_command:
+		for cmd in manual_pages.keys():
+			if cmd.begins_with(last_token): possibilities.append(cmd)
+	
+	var dir_path = VFS.current_path
+	var prefix = last_token
+	
+	if "/" in last_token:
+		dir_path = _resolve(last_token.get_base_dir())
+		prefix = last_token.get_file()
+		if last_token.ends_with("/"): prefix = ""
+	
+	if VFS.files.has(dir_path):
+		for path in VFS.files.keys():
+			if path.begins_with(dir_path) and path != dir_path:
+				var rel = path.trim_prefix(dir_path).trim_prefix("/")
+				if not "/" in rel and rel.begins_with(prefix):
+					possibilities.append(rel)
+
+	var distinct = []
+	for p in possibilities: if not p in distinct: distinct.append(p)
+	
+	if distinct.size() == 1:
+		var completed = distinct[0]
+		if "/" in last_token:
+			tokens[-1] = last_token.get_base_dir() + "/" + completed
+		else:
+			tokens[-1] = completed
+			
+		text = " ".join(tokens)
+		if VFS.files.has(_resolve(tokens[-1])) and VFS.files[_resolve(tokens[-1])].type == "dir":
+			text += "/"
+		caret_column = text.length()
+		
+	elif distinct.size() > 1:
+		append_to_log("\n" + "  ".join(distinct))
 
 func _recursive_tree(base_path: String, prefix: String, out: Array):
 	var children = []
@@ -483,28 +579,19 @@ func find_executable(cmd: String) -> String:
 	var target = VFS.resolve_path("/bin/" + cmd)
 	return target if VFS.files.has(target) else ""
 
-# --- UPDATED: execute_block now handles $(...) in headers ---
 func execute_block(lines: Array, is_silent: bool = false) -> String:
 	var header = lines[0]; var body = lines.slice(1, -1); var output = []
-	
-	# --- FIX: EXPAND COMMAND SUBSTITUTION $(...) IN HEADER ---
 	var cmd_sub_regex = RegEx.new()
 	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
 	var cmd_matches = cmd_sub_regex.search_all(header)
-	
 	for i in range(cmd_matches.size() - 1, -1, -1):
 		var m = cmd_matches[i]
 		var sub_cmd = m.get_string(1)
 		var sub_result = await _run_atomic_command(sub_cmd, true)
-		
-		# FIX: Strip colors and normalize newlines
 		sub_result = strip_bbcode(sub_result)
 		sub_result = sub_result.replace("\n", " ").strip_edges()
-		
 		header = header.erase(m.get_start(), m.get_end() - m.get_start())
 		header = header.insert(m.get_start(), sub_result)
-	
-	# Expand variables
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
 	var matches = var_regex.search_all(header)
 	for i in range(matches.size() - 1, -1, -1):
@@ -512,7 +599,6 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 		var var_name = m.get_string(1) if m.get_string(1) != "" else m.get_string(2)
 		header = header.erase(m.get_start(), m.get_end() - m.get_start())
 		header = header.insert(m.get_start(), str(env_vars.get(var_name, "")))
-
 	if header.begins_with("if"):
 		var condition = ""
 		if "[" in header and "]" in header:
@@ -527,7 +613,6 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 			if run or nesting_depth > 0:
 				var res = await _run_atomic_command(line, true)
 				if run and res != "": output.append(res)
-				
 	elif header.begins_with("for"):
 		var words_header = header.split(" ", false)
 		if words_header.size() >= 2:
@@ -542,11 +627,9 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 					if nesting_depth == 0 and (stripped in ["do", "done", ""]): continue
 					var res = await _run_atomic_command(line, true)
 					if res != "": output.append(res)
-					
 	if output.size() > 0: return "\n".join(output)
 	return ""
 
-# ADDED: Support for single '=' equals sign in conditions
 func evaluate_condition(cond: String) -> bool:
 	var exp = cond.strip_edges()
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
@@ -558,13 +641,10 @@ func evaluate_condition(cond: String) -> bool:
 		exp = exp.insert(m.get_start(), str(env_vars.get(var_name, "")))
 	if exp.begins_with("-d "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "dir"
 	if exp.begins_with("-f "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "file"
-	
-	# Equality Checks
 	if "==" in exp:
 		var s = exp.split("=="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
 	elif "=" in exp:
 		var s = exp.split("="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
-		
 	return false
 
 func _expand_globs(line: String) -> String:
@@ -582,22 +662,6 @@ func _expand_globs(line: String) -> String:
 				new_parts.append(" ".join(matches)); continue
 		new_parts.append(p)
 	return " ".join(new_parts)
-
-func _handle_autocomplete():
-	var current_text = text.strip_edges()
-	if current_text == "": return
-	var tokens = current_text.split(" "); var last_token = tokens[-1]; var possibilities = []
-	for path in VFS.files.keys():
-		if path.begins_with("/bin/"):
-			var cmd_name = path.get_file()
-			if cmd_name.begins_with(last_token): possibilities.append(cmd_name)
-	for path in VFS.files.keys():
-		if path.begins_with(VFS.current_path):
-			var file_name = path.trim_prefix(VFS.current_path).trim_prefix("/")
-			if not "/" in file_name and file_name.begins_with(last_token): possibilities.append(file_name)
-	if possibilities.size() == 1:
-		tokens[-1] = possibilities[0]; text = " ".join(tokens); caret_column = text.length()
-	elif possibilities.size() > 1: append_to_log("\n" + "  ".join(possibilities))
 
 func clear_output(): if output_log: output_log.clear()
 
@@ -618,6 +682,7 @@ func _gui_input(event: InputEvent) -> void:
 				KEY_A: caret_column = 0
 				KEY_E: caret_column = text.length()
 				KEY_U: text = ""
+				KEY_D: if text == "": get_tree().quit()
 				KEY_EQUAL: GlobalSettings.update_font_size(1)
 				KEY_MINUS: GlobalSettings.update_font_size(-1)
 			get_viewport().set_input_as_handled()
@@ -636,7 +701,6 @@ func _handle_history(direction: int):
 func _on_focus_changed(node: Control) -> void:
 	if focus_loop_enabled and node != self and is_visible_in_tree(): call_deferred("grab_focus")
 
-# --- HELPER: Remove BBCode tags (Used for $(...) command substitution) ---
 func strip_bbcode(text: String) -> String:
 	var regex = RegEx.new()
 	regex.compile("\\[/?[^\\]]+\\]")

@@ -5,14 +5,15 @@ signal editor_closed
 signal file_saved(path, content)
 
 # --- NODES ---
-# Ensure your scene tree nodes match these names exactly!
 @onready var file_label = $VBoxContainer/FileNameLabel
-@onready var code_input = $VBoxContainer/CodeInput  # Use CodeEdit node for syntax highlighting
+@onready var code_input = $VBoxContainer/CodeInput
 @onready var help_label = $VBoxContainer/HelpLabel
 
 # --- STATE ---
 var current_file_path = ""
 var vfs_reference = null
+# FIXED: Removed BBCode tags for standard Label compatibility
+const SHORTCUT_TEXT = "^O Write Out    ^X Exit" 
 
 func _ready() -> void: 
 	# Connect to global reactive settings
@@ -28,6 +29,10 @@ func _ready() -> void:
 	style.border_width_bottom = 2
 	style.border_color = Color("#bd93f9")
 	add_theme_stylebox_override("panel", style)
+	
+	# SETUP FOOTER
+	# FIXED: Removed 'bbcode_enabled' assignment
+	help_label.text = SHORTCUT_TEXT
 	
 	hide() 
 
@@ -77,10 +82,8 @@ func get_markdown_highlighter() -> CodeHighlighter:
 # --- EDITOR CORE ---
 
 func open_file(path: String, vfs = null):
-	# 1. Show immediately
 	show()
 		
-	# 2. Resolve VFS
 	if vfs:
 		vfs_reference = vfs
 	elif MissionManager.vfs_node:
@@ -92,30 +95,32 @@ func open_file(path: String, vfs = null):
 
 	current_file_path = path
 	file_label.text = " NANO 2.4  File: " + path
+	help_label.text = SHORTCUT_TEXT
 	
-	# 3. Setup Highlighter
 	apply_highlighter_for_file(path)
 	
-	# 4. Load Content
 	if vfs_reference.files.has(path):
 		code_input.text = vfs_reference.files[path].get("content", "")
 	else:
-		# New file
 		code_input.text = ""
 	
 	code_input.grab_focus()
-	# Move caret to the end of the file
 	code_input.set_caret_column(code_input.text.length())
 
 func _input(event):
 	if not is_visible_in_tree(): return
 	
-	if event is InputEventKey and event.pressed and event.ctrl_pressed:
-		# Standard Terminal Editor Shortcuts
-		if event.keycode == KEY_O or event.keycode == KEY_S:
-			save_file()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_X:
+	if event is InputEventKey and event.pressed:
+		var is_ctrl = event.ctrl_pressed or event.command_or_control_autoremap
+		
+		if is_ctrl:
+			if event.keycode == KEY_O or event.keycode == KEY_S:
+				save_file()
+				get_viewport().set_input_as_handled()
+			elif event.keycode == KEY_X:
+				exit_editor()
+				get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_ESCAPE:
 			exit_editor()
 			get_viewport().set_input_as_handled()
 
@@ -123,22 +128,18 @@ func save_file():
 	if vfs_reference and current_file_path != "":
 		var new_content = code_input.text
 		
-		# LOGIC FIX: Create file if it doesn't exist (like 'touch' + 'nano')
 		if vfs_reference.files.has(current_file_path):
 			vfs_reference.files[current_file_path]["content"] = new_content
 		else:
 			vfs_reference.create_file(current_file_path, new_content, "file")
 		
-		# Notify MissionManager so objectives (like "Sign the Waiver") complete
 		MissionManager.check_mission_progress(MissionManager.TaskType.FILE_CONTENT, current_file_path)
-		
 		file_saved.emit(current_file_path, new_content)
 		
-		# UI Feedback
-		var original = help_label.text
-		help_label.text = "[ WROTE " + str(new_content.length()) + " LINES ]"
+		# FIXED: Removed BBCode tags
+		help_label.text = "[ WROTE " + str(new_content.split("\n").size()) + " LINES ]"
 		await get_tree().create_timer(1.0).timeout
-		help_label.text = original
+		help_label.text = SHORTCUT_TEXT
 
 func exit_editor():
 	hide()

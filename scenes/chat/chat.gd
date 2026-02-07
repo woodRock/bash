@@ -8,6 +8,7 @@ extends Control
 
 # --- NARRATIVE DATA ---
 var chapter_titles = [
+	"THE LINUX TERMINAL",
 	"THE VANCE INCIDENT",
 	"THE LOGIC BOMB",
 	"THE WELLINGTON HARBOR SEARCH",

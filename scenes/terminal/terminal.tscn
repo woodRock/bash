@@ -3,6 +3,10 @@
 [ext_resource type="Script" uid="uid://d348ckbcexo0m" path="res://scenes/terminal/rich_text_label.gd" id="1_7d6gb"]
 [ext_resource type="Script" uid="uid://08cknfj5d6po" path="res://scenes/terminal/terminal.gd" id="1_b5qft"]
 [ext_resource type="Script" uid="uid://dgvsc6jjtbg84" path="res://scenes/terminal/line_edit.gd" id="1_sxuvd"]
+[ext_resource type="FontFile" uid="uid://c8v0ixexefney" path="res://assets/fonts/Roboto_Mono/static/RobotoMono-Regular.ttf" id="2_opqeh"]
+[ext_resource type="FontFile" uid="uid://b2mfu4csw67uf" path="res://assets/fonts/Roboto_Mono/static/RobotoMono-Bold.ttf" id="3_chhtq"]
+[ext_resource type="FontFile" uid="uid://bdtopo30xn88q" path="res://assets/fonts/Roboto_Mono/static/RobotoMono-BoldItalic.ttf" id="4_drxfo"]
+[ext_resource type="FontFile" uid="uid://b1dkhcdcmecqe" path="res://assets/fonts/Roboto_Mono/static/RobotoMono-Italic.ttf" id="5_2jfs2"]
 
 [node name="Terminal" type="PanelContainer" unique_id=130733384]
 custom_minimum_size = Vector2(600, 0)
@@ -28,11 +32,18 @@ custom_minimum_size = Vector2(0, 200)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+focus_mode = 2
 mouse_filter = 1
+theme_override_fonts/normal_font = ExtResource("2_opqeh")
+theme_override_fonts/bold_font = ExtResource("3_chhtq")
+theme_override_fonts/bold_italics_font = ExtResource("4_drxfo")
+theme_override_fonts/italics_font = ExtResource("5_2jfs2")
+theme_override_fonts/mono_font = ExtResource("2_opqeh")
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
 scroll_following = true
+selection_enabled = true
 script = ExtResource("1_7d6gb")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=632435318]
@@ -47,6 +58,7 @@ text = "jesse@OS:~$"
 custom_minimum_size = Vector2(500, 30)
 layout_mode = 2
 size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("2_opqeh")
 keep_editing_on_text_submit = true
 caret_blink = true
 script = ExtResource("1_sxuvd")
