@@ -92,7 +92,34 @@ The following personnel are cleared for Project Gatekeeper terminal use. Please 
 			"executable": true, 
 			"content": "syscall unlock $1"
 		}
-
+		
+	elif day_index == 4: # Day 5: Environment Inspection
+		current_path = "/home/jesse"
+		files["/proc"] = {"type": "dir", "executable": true, "content": ""}
+		
+		# 19 Legitimate Processes + 1 Malware
+		var modes = []
+		for i in range(19): modes.append("MODE=IDLE")
+		modes.append("MODE=HUNTER")
+		modes.shuffle()
+		
+		for i in range(20):
+			var pid = str(randi() % 8000 + 1000)
+			# Ensure unique PIDs
+			while files.has("/proc/" + pid): pid = str(randi() % 8000 + 1000)
+			
+			files["/proc/" + pid] = {"type": "dir", "executable": true, "content": ""}
+			
+			# Realism: 'cmdline' is what ps reads
+			files["/proc/" + pid + "/cmdline"] = {"type": "file", "executable": false, "content": "system_d"}
+			
+			# Realism: 'environ' is what the player must check
+			files["/proc/" + pid + "/environ"] = {"type": "file", "executable": false, "content": modes[i]}
+		
+		# Binaries
+		files["/bin/ps"] = {"type": "file", "executable": true, "content": "syscall ps"}
+		files["/bin/kill"] = {"type": "file", "executable": true, "content": "syscall kill $1"}
+	
 func _setup_binaries():
 	# Self-test script that runs the full test suite
 	files["/bin/test_bash.sh"] = {

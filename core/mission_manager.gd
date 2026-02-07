@@ -7,7 +7,7 @@ signal mission_updated
 enum TaskType { COMMAND, OUTPUT, VFS_STATE, FILE_CONTENT }
 
 # --- STATE ---
-var current_day : int = 3 
+var current_day : int = 3
 var current_mission_id : int = 0
 
 # References assigned by the terminal/VFS at runtime via their _ready() functions
@@ -106,19 +106,39 @@ var days = [
 		{"sender": "Freya", "text": "They are in [color=#f1fa8c]access_codes.txt[/color]. If you try to type them manually, the system will lock you out before you hit the tenth one. You need to automate it.", "objective": "Read the codes", "type": TaskType.COMMAND, "value": "cat access_codes.txt"},
 		
 		# THE PUZZLE:
-		# Player must realize:
-		# 1. `$(cat access_codes.txt)` turns the file content into a list of items.
-		# 2. `for i in ...` iterates that list.
-		# 3. `unlock $i` tries the key.
 		{"sender": "Vance AI", "text": "Create a script `breaker.sh`. Iterate through the file contents. Feed every single line into the `unlock` command.", "objective": "Script the solution", "type": TaskType.VFS_STATE, "value": "/sandbox/breaker.sh"},
 		
-		# We check if they put the logic inside the file.
 		{"sender": "Vance AI", "text": "Use the command substitution `$(cat ...)` to feed the loop.", "objective": "Write loop logic", "type": TaskType.FILE_CONTENT, "file": "/sandbox/breaker.sh", "value": "$(cat access_codes.txt)"},
 		
 		{"sender": "SYSTEM", "text": "Awaiting handshake...", "objective": "Run the script", "type": TaskType.OUTPUT, "value": "ACCESS GRANTED"},
 		
-		{"sender": "Freya", "text": "We're in. That was fast. I'm securing the connection now.\n\n[color=#50fa7b]>> DEMO COMPLETE.[/color]", "objective": "End", "type": TaskType.COMMAND, "value": "exit"}
+		# Day 4 Resolution: Link to Day 5
+		{"sender": "Freya", "text": "We're in. That was fast. I'm securing the connection now. Aris will be furious you broke out of his sandbox.\n\n[color=#50fa7b]>> JAILBREAK SUCCESSFUL. REBOOT TO RESTORE ROOT ACCESS.[/color]", "objective": "Run 'reboot'", "type": TaskType.COMMAND, "value": "reboot"}
 	],
+	
+	# ==========================================
+	# DAY 5: The Hunter (REALISTIC)
+	# Concept: /proc, environ, and 'ps' masking
+	# ==========================================
+	[
+		{"sender": "SYSTEM", "text": "WARNING: Network throughput anomaly detected.", "objective": "Check running processes", "type": TaskType.COMMAND, "value": "ps"},
+		
+		{"sender": "Freya", "text": "I see it. `system_d`. It's a mimetic virus. It clones the name of standard system processes so you can't distinguish it in the process list.", "objective": "Navigate to /proc", "type": TaskType.COMMAND, "value": "cd /proc"},
+		
+		{"sender": "Vance AI", "text": "It can clone the name, but not the environment. Standard system daemons run in `MODE=IDLE`. The virus will be running in `MODE=HUNTER`.", "objective": "List the PIDs", "type": TaskType.COMMAND, "value": "ls"},
+		
+		{"sender": "Freya", "text": "You can't kill them randomly. If you kill a real system daemon, the kernel panics and we lose the connection. You have to be surgical.", "objective": "Check a process environment", "type": TaskType.COMMAND, "value": "cat"},
+		
+		# Return Home Logic
+		{"sender": "Vance AI", "text": "We shouldn't work inside the process directory. Go back to your home folder before we write the solution.", "objective": "Return home", "type": TaskType.COMMAND, "value": "cd ~"},
+
+		# THE PUZZLE:
+		{"sender": "Vance AI", "text": "Write `cleaner.sh`. Loop through the PIDs in `/proc`. Check the `environ` file for the HUNTER signature. Kill only the positive match.", "objective": "Script the logic", "type": TaskType.FILE_CONTENT, "file": "/home/jesse/cleaner.sh", "value": "environ"},
+		
+		{"sender": "SYSTEM", "text": "Analyzing...", "objective": "Run script", "type": TaskType.OUTPUT, "value": "terminated"},
+		
+		{"sender": "Freya", "text": "Clean kill. The system didn't even flinch. You're getting good at this.\n\n[color=#50fa7b]>> DEMO END.[/color]", "objective": "Wait", "type": TaskType.COMMAND, "value": "wait"}
+	]
 ]
 
 # --- CORE LOGIC ---
@@ -136,6 +156,9 @@ func check_mission_progress(type: TaskType, input_value: String):
 	var mission = active_missions[current_mission_id]
 	var success = false
 	
+	# Strict Type Checking
+	if mission.get("type") != type: return
+
 	match type:
 		TaskType.COMMAND:
 			var clean_input = input_value.strip_edges().replace("//", "/")
@@ -178,5 +201,6 @@ func _advance():
 
 func _prepare_next_day_vfs():
 	if vfs_node:
+		# FIX: Only call reset_vfs(). Do NOT call setup_day() again.
+		# reset_vfs() in virtual_file_system.gd automatically calls setup_day().
 		vfs_node.reset_vfs()
-		vfs_node.setup_day(current_day)

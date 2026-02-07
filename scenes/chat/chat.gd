@@ -10,7 +10,9 @@ extends Control
 var chapter_titles = [
 	"THE VANCE INCIDENT",
 	"THE LOGIC BOMB",
-	"THE WELLINGTON HARBOR SEARCH"
+	"THE WELLINGTON HARBOR SEARCH",
+	"THE JAILBREAK",
+	"THE HUNTER",
 ]
 
 func _ready():

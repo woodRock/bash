@@ -45,7 +45,9 @@ var manual_pages = {
 	"export": "Usage: export VAR=VALUE\nSets an environment variable.",
 	"reboot": "Usage: reboot\nRestarts the kernel. Required to apply system updates.",
 	"for": "Usage: for VAR in ITEM1 ITEM2; do ...; done\nLoops through a list of items.\nExample: for i in 1 2 3; do echo $i; done",
-	"tree": "Usage: tree [directory]\nDisplays a recursive visual directory structure."
+	"tree": "Usage: tree [directory]\nDisplays a recursive visual directory structure.",
+	"ps": "Usage: ps\nSnapshot of current processes.",
+	"kill": "Usage: kill [pid]\nTerminates the process with the given PID."
 }
 
 func _ready() -> void:
@@ -106,7 +108,8 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 	var clean_line = line.strip_edges()
 	if clean_line == "" or clean_line.begins_with("#"): return ""
 
-	var regex = RegEx.new(); regex.compile("(&&|\\|\\|)")
+	# ADDED: Support for semicolon ';' as a command separator
+	var regex = RegEx.new(); regex.compile("(&&|\\|\\||;)")
 	var matches = regex.search_all(clean_line)
 	var segments = []; var operators = []; var last_index = 0
 	
@@ -123,6 +126,7 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 			var op = operators[i-1]
 			if (op == "&&" and env_vars["?"] != "0") or (op == "||" and env_vars["?"] == "0"):
 				continue
+			# If op is ';', we just proceed correctly.
 		var result = await _run_atomic_command(cmd_segment, is_silent)
 		if result != "": all_results.append(result)
 	
@@ -191,6 +195,10 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		var m = cmd_matches[i]
 		var sub_cmd = m.get_string(1)
 		var sub_result = await _run_atomic_command(sub_cmd, true)
+		
+		# FIX: Strip colors so logic works
+		sub_result = strip_bbcode(sub_result)
+		
 		proc = proc.erase(m.get_start(), m.get_end() - m.get_start())
 		proc = proc.insert(m.get_start(), sub_result.strip_edges())
 	
@@ -229,7 +237,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"reboot":
 			clear_output()
 			reboot_requested.emit()
-			final_result = ""
+			final_result = "System rebooting..."
 		"nano":
 			if args.size() > 0:
 				var path = _resolve(args[0])
@@ -241,7 +249,7 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		"help":
 			final_result = "AVAILABLE COMMANDS:\n"
 			final_result += "[color=#bd93f9]filesystem:[/color] ls, cd, pwd, mkdir, touch, rm, cp, mv, tree\n"
-			final_result += "[color=#bd93f9]system:[/color]     cat, grep, chmod, export, reboot\n"
+			final_result += "[color=#bd93f9]system:[/color]     cat, grep, chmod, export, reboot, ps, kill\n"
 			final_result += "[color=#bd93f9]tools:[/color]      nano, sh\n\n"
 			final_result += "Type 'man [command]' for detailed usage."
 		"man":
@@ -253,8 +261,8 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 					final_result = "No manual entry for " + topic
 			else:
 				final_result = "What manual page do you want? (e.g., 'man grep')"
-		# ADDED 'tree' to syscall list
-		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree", "unlock": 
+		# ADDED: tree, unlock, ps, kill
+		"ls", "mkdir", "touch", "rm", "grep", "cp", "mv", "tree", "unlock", "ps", "kill": 
 			final_result = await execute_syscall(tokens)
 		"cat": 
 			final_result = execute_cat(args)
@@ -337,15 +345,13 @@ func execute_syscall(args: Array) -> String:
 						out.append("[color=" + col + "]" + rel + "[/color]")
 			return "\n".join(out) if long_format else "  ".join(out)
 		
-		# --- TREE COMMAND IMPLEMENTATION ---
+		# --- TREE ---
 		"tree":
 			var target = VFS.current_path
 			if args.size() > 1:
 				target = _resolve(args[1])
-			
 			if not VFS.files.has(target):
 				return "tree: " + args[1] + ": No such directory"
-			
 			var out_arr = []
 			out_arr.append("[color=#5dade2]" + (target if target == "/" else target.get_file()) + "[/color]")
 			_recursive_tree(target, "", out_arr)
@@ -384,18 +390,55 @@ func execute_syscall(args: Array) -> String:
 					if pat in l.to_lower(): ms.append(l)
 				return "\n".join(ms)
 			return "grep: " + args[2] + ": No such file"
+		
+		# --- DAY 4: UNLOCK PUZZLE ---
 		"unlock":
 			if args.size() < 2: return "Usage: unlock [key]"
-			# Simulate checking the key
 			if args[1] == "NODE-7777-X" or args[1] == "CORRECT-KEY-777":
 				return "ACCESS GRANTED. FIREWALL DISABLED."
 			else:
 				return "Access Denied: " + args[1]
+		
+		# --- DAY 5: PROCESS LIST ---
+		"ps":
+			if not VFS.files.has("/proc"): return "Error: /proc filesystem not mounted."
+			
+			var out = ["[color=#bd93f9]  PID TTY          TIME CMD[/color]"]
+			
+			for path in VFS.files.keys():
+				if path.begins_with("/proc/") and path.ends_with("/cmdline"):
+					var pid = path.get_slice("/", 2)
+					# FIX: Variable name collision fixed
+					var proc_cmd = VFS.files[path].content 
+					out.append("%5s ?        00:00:00 %s" % [pid, proc_cmd])
+					
+			return "\n".join(out)
+		
+		# --- DAY 5: KILL PROCESS ---
+		"kill":
+			if args.size() < 2: return "kill: usage: kill [pid]"
+			var pid = args[1]
+			var proc_dir = "/proc/" + pid
+			if not VFS.files.has(proc_dir):
+				return "kill: (" + pid + ") - No such process"
+			
+			var env_file = proc_dir + "/environ"
+			var env_content = ""
+			if VFS.files.has(env_file):
+				env_content = VFS.files[env_file].content
+				
+			if env_content == "MODE=HUNTER":
+				_recursive_delete(proc_dir)
+				return "[SYSTEM] Process " + pid + " terminated."
+			elif env_content == "MODE=IDLE":
+				return "[KERNEL PANIC] CRITICAL PROCESS KILLED. SYSTEM HALTED."
+			else:
+				return "kill: permission denied"
 	return ""
 
-# --- RECURSIVE TREE HELPER ---
+# --- HELPERS ---
+
 func _recursive_tree(base_path: String, prefix: String, out: Array):
-	# Find immediate children
 	var children = []
 	for p in VFS.files.keys():
 		if p == base_path: continue
@@ -404,26 +447,28 @@ func _recursive_tree(base_path: String, prefix: String, out: Array):
 			if rel.begins_with("/"): rel = rel.trim_prefix("/")
 			if not "/" in rel and rel != "":
 				children.append(p)
-	
 	children.sort()
-	
 	for i in range(children.size()):
 		var child_full = children[i]
 		var is_last = (i == children.size() - 1)
 		var connector = "└── " if is_last else "├── "
-		
 		var node_name = child_full.get_file()
 		var node_data = VFS.files[child_full]
-		
 		var col = "#ffffff"
 		if node_data.type == "dir": col = "#5dade2"
 		elif node_data.get("executable", false): col = "#50fa7b"
-		
 		out.append(prefix + connector + "[color=" + col + "]" + node_name + "[/color]")
-		
 		if node_data.type == "dir":
 			var next_prefix = prefix + ("    " if is_last else "│   ")
 			_recursive_tree(child_full, next_prefix, out)
+
+func _recursive_delete(target_path: String):
+	var to_erase = []
+	for p in VFS.files.keys():
+		if p == target_path or p.begins_with(target_path + "/"):
+			to_erase.append(p)
+	for p in to_erase:
+		VFS.files.erase(p)
 
 func execute_chmod(args: Array):
 	if args.size() < 2: return
@@ -443,24 +488,23 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 	var header = lines[0]; var body = lines.slice(1, -1); var output = []
 	
 	# --- FIX: EXPAND COMMAND SUBSTITUTION $(...) IN HEADER ---
-	# We must do this BEFORE processing variables or splitting the string.
 	var cmd_sub_regex = RegEx.new()
 	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
 	var cmd_matches = cmd_sub_regex.search_all(header)
 	
-	# Iterate backwards to keep indices valid during replacement
 	for i in range(cmd_matches.size() - 1, -1, -1):
 		var m = cmd_matches[i]
 		var sub_cmd = m.get_string(1)
-		# Recursively run the inner command
 		var sub_result = await _run_atomic_command(sub_cmd, true)
-		# CRITICAL: Replace newlines with spaces so 'for' loops see them as separate items
+		
+		# FIX: Strip colors and normalize newlines
+		sub_result = strip_bbcode(sub_result)
 		sub_result = sub_result.replace("\n", " ").strip_edges()
 		
 		header = header.erase(m.get_start(), m.get_end() - m.get_start())
 		header = header.insert(m.get_start(), sub_result)
 	
-	# Expand variables in header
+	# Expand variables
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
 	var matches = var_regex.search_all(header)
 	for i in range(matches.size() - 1, -1, -1):
@@ -502,6 +546,7 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 	if output.size() > 0: return "\n".join(output)
 	return ""
 
+# ADDED: Support for single '=' equals sign in conditions
 func evaluate_condition(cond: String) -> bool:
 	var exp = cond.strip_edges()
 	var var_regex = RegEx.new(); var_regex.compile("\\$\\{(\\w+)\\}|\\$(\\w+)")
@@ -513,8 +558,13 @@ func evaluate_condition(cond: String) -> bool:
 		exp = exp.insert(m.get_start(), str(env_vars.get(var_name, "")))
 	if exp.begins_with("-d "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "dir"
 	if exp.begins_with("-f "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "file"
+	
+	# Equality Checks
 	if "==" in exp:
 		var s = exp.split("=="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
+	elif "=" in exp:
+		var s = exp.split("="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
+		
 	return false
 
 func _expand_globs(line: String) -> String:
@@ -585,3 +635,9 @@ func _handle_history(direction: int):
 
 func _on_focus_changed(node: Control) -> void:
 	if focus_loop_enabled and node != self and is_visible_in_tree(): call_deferred("grab_focus")
+
+# --- HELPER: Remove BBCode tags (Used for $(...) command substitution) ---
+func strip_bbcode(text: String) -> String:
+	var regex = RegEx.new()
+	regex.compile("\\[/?[^\\]]+\\]")
+	return regex.sub(text, "", true)
