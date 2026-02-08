@@ -1,8 +1,8 @@
-# Game Design Document: Bash
+# Game Design Document: Project Gatekeeper
 
-## 1. What is Bash?
+## 1. What is Project Gatekeeper?
 
-**Bash** is a narrative-driven terminal simulation game, where the player steps into the role of a graduate researcher investigating a mysterious disappearance. Their goal is to master a fully functional virtual Linux shell, using real-world commands to traverse directories, write automation scripts, decrypt logs, and piece together a conspiracy hidden within the system's code. The game blends the authentic technical depth of programming puzzlers—like *Hacknet*, *TIS-100*, and *SeekL*—with the immersive, environmental storytelling and puzzle progression of *Portal*.
+**Project Gatekeeper** is a narrative-driven terminal simulation game, where the player steps into the role of a graduate researcher investigating a mysterious disappearance. Their goal is to master a fully functional virtual Linux shell, using real-world commands to traverse directories, write automation scripts, decrypt logs, and piece together a conspiracy hidden within the system's code. The game blends the authentic technical depth of programming puzzlers—like *Hacknet*, *TIS-100*, and *SeekL*—with the immersive, environmental storytelling and puzzle progression of *Portal*.
 
 ![HackNet](https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/365450/1e29fd71c7868652cee45ba70c1575087c5dbe55/header.jpg?t=1758156718)
 ![Portal 2](https://upload.wikimedia.org/wikipedia/en/f/f9/Portal2cover.jpg)
@@ -115,7 +115,7 @@ The player starts off in a tutorial-like environment, where commands are explici
 * **Day 2 (Puzzle):** Goal-oriented. "The script won't run. Fix the permissions." (Player must recall `chmod`).
 * **Day 3 (Exam):** Open-ended. "Find the needle in the haystack." (Player must write a loop).
 
-They are given a `help` command which lists all available commands, a `man` command which lists the documentation available for each command, and a test suite (`test_bash.sh`) which shows the features of the Bash scripting language in action.
+They are given a `help` command which lists all available commands, a `man` command which lists the documentation available for each command, and a test suite (`run_tests`) which shows the features of the Bash scripting language in action.
 
 ---
 
