@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://cwabm8k36p2qk"]
+
+[ext_resource type="Script" uid="uid://0g78j1ulcma5" path="res://music_manager.gd" id="1_2m50j"]
+[ext_resource type="AudioStream" uid="uid://rmwqvvql1t1y" path="res://assets/audio/gatekeeper_loop.wav" id="2_stv7n"]
+[ext_resource type="AudioStream" uid="uid://30ld6hvl8y6o" path="res://assets/audio/entity_loop.wav" id="3_wfsea"]
+[ext_resource type="AudioStream" uid="uid://g8ndvltmkf1v" path="res://assets/audio/hacking_loop.wav" id="4_w1037"]
+
+[node name="MusicManager" type="Node" unique_id=1321946286]
+script = ExtResource("1_2m50j")
+
+[node name="Gatekeeper" type="AudioStreamPlayer" parent="." unique_id=1133226468]
+stream = ExtResource("2_stv7n")
+volume_db = -80.0
+
+[node name="Entity" type="AudioStreamPlayer" parent="." unique_id=343759329]
+stream = ExtResource("3_wfsea")
+volume_db = -80.0
+
+[node name="Hacking" type="AudioStreamPlayer" parent="." unique_id=1157224130]
+stream = ExtResource("4_w1037")
+volume_db = -80.0

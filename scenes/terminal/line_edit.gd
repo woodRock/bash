@@ -169,7 +169,7 @@ func process_input_line(line: String, is_silent: bool = false) -> String:
 		var result = await _run_atomic_command(cmd_segment, is_silent)
 		if result != "": all_results.append(result)
 		
-	return " ".join(all_results) if all_results.size() > 0 else ""
+	return "\n".join(all_results) if all_results.size() > 0 else ""
 
 func _run_atomic_command(cmd_text: String, is_silent: bool) -> String:
 	var clean_cmd = cmd_text.strip_edges()
@@ -199,6 +199,10 @@ func _run_atomic_command(cmd_text: String, is_silent: bool) -> String:
 			block_buffer.clear()
 			var block_res = await execute_block(lines_to_exec, true)
 			recursion_depth -= 1
+			
+			if not is_silent and block_res != "":
+				append_to_log(block_res)
+				
 			return block_res
 		recursion_depth -= 1
 		return ""
@@ -217,7 +221,9 @@ func _run_atomic_command(cmd_text: String, is_silent: bool) -> String:
 	else:
 		env_vars["?"] = "0"
 	
-	if not is_silent and result != "" and nesting_depth == 0:
+	var is_script_exec = (words[0] == "sh")
+	
+	if not is_silent and result != "" and nesting_depth == 0 and not is_script_exec:
 		append_to_log(result)
 	
 	recursion_depth -= 1
@@ -235,24 +241,17 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		var r_parts = proc.split(" > ", true, 1)
 		proc = r_parts[0].strip_edges(); redirect_to = r_parts[1].strip_edges(); append_mode = false
 
-	# 1. COMMAND SUBSTITUTION
 	var cmd_sub_regex = RegEx.new()
-	cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
-	
-	# Iterate search matches manually to handle recursion properly
 	while true:
+		cmd_sub_regex.compile("\\$\\(([^)]+)\\)")
 		var match_res = cmd_sub_regex.search(proc)
 		if not match_res: break
-		
 		var sub_cmd = match_res.get_string(1)
 		var sub_result = await process_input_line(sub_cmd, true)
 		sub_result = strip_bbcode(sub_result).replace("\n", " ") 
-		
-		# Safer replacement: erase range and insert
 		proc = proc.erase(match_res.get_start(), match_res.get_end() - match_res.get_start())
 		proc = proc.insert(match_res.get_start(), sub_result.strip_edges())
 	
-	# 2. VARIABLE EXPANSION
 	var expand_vars = func(input_str: String) -> String:
 		var result_str = input_str
 		var sub_regex = RegEx.new(); sub_regex.compile("\\$\\{(\\w+):(\\d+):(\\d+)\\}")
@@ -278,6 +277,26 @@ func parse_single_command(cmd_text: String, is_silent: bool = false) -> String:
 		var t = m.get_string(1) if m.get_string(1) != "" else (m.get_string(2) if m.get_string(2) != "" else m.get_string(3))
 		tokens.append(t)
 	if tokens.size() == 0: return ""
+	
+	# --- HANDLE VARIABLE ASSIGNMENT (KEY=VALUE) ---
+	var raw_cmd = tokens[0]
+	if "=" in raw_cmd and not raw_cmd.begins_with("-"):
+		var eq_idx = raw_cmd.find("=")
+		var var_name = raw_cmd.substr(0, eq_idx)
+		var valid_name = RegEx.new()
+		valid_name.compile("^[a-zA-Z_][a-zA-Z0-9_]*$")
+		if valid_name.search(var_name):
+			# Reconstruct value to allow spaces (e.g. A="B C" which got split)
+			var full_line = " ".join(tokens)
+			var var_value = full_line.substr(eq_idx + 1).strip_edges()
+			
+			# Remove surrounding quotes if present
+			if (var_value.begins_with('"') and var_value.ends_with('"')) or (var_value.begins_with("'") and var_value.ends_with("'")):
+				var_value = var_value.substr(1, var_value.length() - 2)
+				
+			env_vars[var_name] = var_value
+			return "" # Assignment is silent
+	# ----------------------------------------------
 	
 	var cmd = tokens[0].to_lower()
 	var args = tokens.slice(1)
@@ -346,8 +365,7 @@ func execute_sh(args: Array, is_silent: bool = false) -> String:
 			var res = await process_input_line(line.strip_edges(), is_silent)
 			if res != "": outs.append(res)
 		nesting_depth = saved_nesting; block_buffer = saved_buffer; recursion_depth = saved_recursion
-		if not is_silent: return ""
-		return " ".join(outs)
+		return "\n".join(outs)
 	return "sh: " + args[0] + ": not found"
 
 func execute_cd(args: Array) -> String:
@@ -436,7 +454,6 @@ func execute_syscall(args: Array) -> String:
 			var output_errs = []
 			for t in targets:
 				if not VFS.files.has(t):
-					# FIX: use full path 't', not t.get_file()
 					if not force: output_errs.append("rm: " + t + ": No such file")
 					continue
 				var is_dir = (VFS.files[t].type == "dir")
@@ -599,7 +616,7 @@ func execute_block(lines: Array, is_silent: bool = false) -> String:
 					var stripped = line.strip_edges()
 					if nesting_depth == 0 and (stripped in ["do", "done", ""]): continue
 					var res = await _run_atomic_command(line, true); if res != "": output.append(res)
-	return " ".join(output) if output.size() > 0 else ""
+	return "\n".join(output) if output.size() > 0 else ""
 
 func evaluate_condition(cond: String) -> bool:
 	var exp = cond.strip_edges()
@@ -611,9 +628,12 @@ func evaluate_condition(cond: String) -> bool:
 		exp = exp.insert(m.get_start(), str(env_vars.get(var_name, "")))
 	if exp.begins_with("-d "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "dir"
 	if exp.begins_with("-f "): return VFS.files.has(_resolve(exp.get_slice(" ", 1))) and VFS.files[_resolve(exp.get_slice(" ", 1))].type == "file"
-	# FIX: Explicit check for double vs single equals to match Bash strictness
-	if "==" in exp: var s = exp.split("=="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
-	if "=" in exp: var s = exp.split("="); if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
+	if "==" in exp: 
+		var s = exp.split("=="); 
+		if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
+	elif "=" in exp: 
+		var s = exp.split("="); 
+		if s.size() == 2: return s[0].strip_edges().replace('"', '') == s[1].strip_edges().replace('"', '')
 	return false
 
 func _expand_globs(line: String) -> String:

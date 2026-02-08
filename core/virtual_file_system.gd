@@ -146,6 +146,10 @@ echo
 rm /tmp/failures.log
 export PASS=0
 export FAIL=0
+# Clean up temp files from prior runs
+rm /tmp/loop*.txt
+rm /tmp/multi.txt
+rm /tmp/*.log
 sh /tests/suite_01_basic.sh
 sh /tests/suite_02_variables.sh
 sh /tests/suite_03_conditionals.sh
@@ -368,9 +372,14 @@ sh /tests/check_result.sh
 
 export TEST_NAME="exit status fail"
 cat /nonexistent
-# FIX: Capture status immediately, before export command resets it
 export ACTUAL=$?
 export EXPECTED="1"
+sh /tests/check_result.sh
+
+export TEST_NAME="variable without export"
+LOCAL_VAR=secret_data
+export EXPECTED="secret_data"
+export ACTUAL=$LOCAL_VAR
 sh /tests/check_result.sh
 """
 	}
@@ -542,6 +551,7 @@ sh /tests/check_result.sh
 		"type": "file", "executable": true,
 		"content": """echo [SUITE 4] Loops
 export TEST_NAME="for loop simple"
+rm /tmp/loop1.txt
 for I in 1 2 3
 do
 echo $I >> /tmp/loop1.txt
@@ -551,6 +561,7 @@ export ACTUAL=$(cat /tmp/loop1.txt)
 sh /tests/check_result.sh
 
 export TEST_NAME="for loop words"
+rm /tmp/loop2.txt
 for W in alpha beta gamma
 do
 echo $W >> /tmp/loop2.txt
@@ -560,6 +571,7 @@ export ACTUAL=$(cat /tmp/loop2.txt)
 sh /tests/check_result.sh
 
 export TEST_NAME="for loop nested"
+rm /tmp/loop3.txt
 for I in 1 2
 do
 for J in a b
@@ -594,6 +606,7 @@ export ACTUAL=$RESULT
 sh /tests/check_result.sh
 
 export TEST_NAME="for loop single"
+rm /tmp/loop4.txt
 for S in only
 do
 echo $S > /tmp/loop4.txt
@@ -603,6 +616,7 @@ export ACTUAL=$(cat /tmp/loop4.txt)
 sh /tests/check_result.sh
 
 export TEST_NAME="for with var expansion"
+rm /tmp/loop5.txt
 export LIST=one two three
 for ITEM in $LIST
 do
@@ -613,6 +627,7 @@ export ACTUAL=$(cat /tmp/loop5.txt)
 sh /tests/check_result.sh
 
 export TEST_NAME="for with if"
+rm /tmp/loop6.txt
 for N in 1 2 3
 do
 if [ $N == 2 ]
@@ -667,6 +682,7 @@ export ACTUAL=$CNT
 sh /tests/check_result.sh
 
 export TEST_NAME="for with glob"
+rm /tmp/*.log
 touch /tmp/test1.log
 touch /tmp/test2.log
 export LAST=
@@ -679,6 +695,7 @@ export ACTUAL=$LAST
 sh /tests/check_result.sh
 
 export TEST_NAME="for multiline body"
+rm /tmp/multi.txt
 for I in 1 2
 do
 echo start >> /tmp/multi.txt
@@ -750,7 +767,6 @@ export ACTUAL=$(cat /tmp/delete.txt)
 sh /tests/check_result.sh
 
 export TEST_NAME="rm missing"
-# FIX: Test matches actual error with path
 export EXPECTED="rm: /tmp/missing.txt: No such file"
 export ACTUAL=$(rm /tmp/missing.txt)
 sh /tests/check_result.sh
@@ -809,7 +825,6 @@ sh /tests/check_result.sh
 export TEST_NAME="tree basic"
 mkdir /tmp/tree
 touch /tmp/tree/a.txt
-# FIX: Tree returns multiline string joined by space in parsing
 export ACTUAL=$(tree /tmp/tree)
 export EXPECTED="tree └── a.txt"
 sh /tests/check_result.sh
@@ -833,7 +848,6 @@ export TEST_NAME="grep multiple matches"
 echo ERROR 1 > /tmp/greps.txt
 echo INFO ok >> /tmp/greps.txt
 echo ERROR 2 >> /tmp/greps.txt
-# FIX: Grep returns all matches
 export EXPECTED="ERROR 1 ERROR 2"
 export ACTUAL=$(grep error /tmp/greps.txt)
 sh /tests/check_result.sh

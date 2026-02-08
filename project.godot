@@ -20,8 +20,9 @@ config/icon="res://assets/icon.svg"
 
 [autoload]
 
-MissionManager="*uid://cij8tnpoj71ok"
+MusicManager="*uid://cwabm8k36p2qk"
 GlobalSettings="*uid://oltrw06kxhak"
+MissionManager="*uid://cij8tnpoj71ok"
 
 [display]
 
